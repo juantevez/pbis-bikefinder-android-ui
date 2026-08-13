@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Sólo debug: el backend de desarrollo corre en HTTP plano (gateway :8000,
+  auth-service :8084) y desde Android 9 el tráfico en claro está bloqueado por
+  defecto. Este override NO llega al release: ahí la app sigue exigiendo HTTPS,
+  que es lo que corresponde cuando por la conexión viajan tokens de sesión.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <application
+        android:usesCleartextTraffic="true"
+        tools:ignore="UnusedAttribute" />
+
+</manifest>

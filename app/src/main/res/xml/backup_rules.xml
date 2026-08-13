@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Reglas de backup para API < 31.
+
+  Los tokens de sesión quedan fuera del backup. DataStore los guarda en
+  files/datastore/session_tokens.preferences_pb, y un backup a la nube saca ese
+  archivo del dispositivo: como no están cifrados en reposo (ver TokenStore),
+  excluirlos es lo mínimo que se puede hacer hasta decidir si se cifran con
+  Keystore o se acorta la vida del refresh token.
+-->
+<full-backup-content>
+    <exclude domain="file" path="datastore/session_tokens.preferences_pb" />
+</full-backup-content>
