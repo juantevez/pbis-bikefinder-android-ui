@@ -219,6 +219,7 @@ data class PhotoDto(
     val isPrimary: Boolean = false,
     val description: String? = null,
     /** Sin zona. Interpretar con [BackendTimeZone]. */
+    @Serializable(with = FlexibleLocalDateTimeSerializer::class)
     val uploadedAt: LocalDateTime? = null,
     val downloadUrl: String? = null,
     val exif: ExifDto? = null,
@@ -235,6 +236,7 @@ data class PhotoDto(
 data class ExifDto(
     val latitude: Double? = null,
     val longitude: Double? = null,
+    @Serializable(with = FlexibleLocalDateTimeSerializer::class)
     val dateTime: LocalDateTime? = null,
     val cameraMake: String? = null,
     val cameraModel: String? = null,

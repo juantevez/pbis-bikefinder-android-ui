@@ -79,7 +79,9 @@ data class TipDto(
     val canReply: Boolean = false,
     val status: TipStatus? = null,
     /** Sin zona: interpretar con [BackendTimeZone]. */
+    @Serializable(with = FlexibleLocalDateTimeSerializer::class)
     val submittedAt: LocalDateTime? = null,
+    @Serializable(with = FlexibleLocalDateTimeSerializer::class)
     val readAt: LocalDateTime? = null,
     val latitude: Double? = null,
     val longitude: Double? = null,
@@ -137,7 +139,9 @@ data class MessageDto(
     /** Quién escribió: dueño o informante. */
     val senderType: String? = null,
     val message: String? = null,
+    @Serializable(with = FlexibleLocalDateTimeSerializer::class)
     val sentAt: LocalDateTime? = null,
+    @Serializable(with = FlexibleLocalDateTimeSerializer::class)
     val readAt: LocalDateTime? = null,
     val isRead: Boolean = false,
 )
@@ -146,5 +150,6 @@ data class MessageDto(
 data class MessageSentDto(
     val messageId: String,
     val message: String? = null,
+    @Serializable(with = FlexibleLocalDateTimeSerializer::class)
     val sentAt: LocalDateTime? = null,
 )

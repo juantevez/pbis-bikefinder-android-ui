@@ -211,8 +211,10 @@ data class PdfVersionDto(
     val isActive: Boolean = false,
     val isStale: Boolean = false,
     val fileSizeBytes: Long = 0,
+    @Serializable(with = FlexibleLocalDateTimeSerializer::class)
     val generatedAt: kotlinx.datetime.LocalDateTime? = null,
     /** null si no expira. */
+    @Serializable(with = FlexibleLocalDateTimeSerializer::class)
     val expiresAt: kotlinx.datetime.LocalDateTime? = null,
 )
 
@@ -224,6 +226,7 @@ data class StolenBikeDto(
     val reportId: String,
     val bicycleId: String? = null,
     val theftDate: LocalDate? = null,
+    @Serializable(with = FlexibleLocalDateTimeSerializer::class)
     val reportedAt: kotlinx.datetime.LocalDateTime? = null,
     val location: StolenBikeLocationDto? = null,
     val bike: StolenBikeInfoDto? = null,
