@@ -9,6 +9,7 @@ import androidx.navigation.compose.rememberNavController
 import kotlinx.serialization.Serializable
 import pbis.bike.finder.data.remote.SessionEvent
 import pbis.bike.finder.data.remote.SessionManager
+import pbis.bike.finder.ui.addbike.AddBikeScreen
 import pbis.bike.finder.ui.bikes.BikesScreen
 import pbis.bike.finder.ui.login.LoginScreen
 
@@ -107,10 +108,23 @@ fun BikeFinderNavHost(
         }
         composable<Route.Dashboard> { PlaceholderScreen("Dashboard") }
         composable<Route.MyBikes> {
-            BikesScreen(onBikeClick = { navController.navigate(Route.BikeDetail(it)) })
+            BikesScreen(
+                onBikeClick = { navController.navigate(Route.BikeDetail(it)) },
+                onAddBike = { navController.navigate(Route.AddBike) },
+            )
         }
         composable<Route.BikeDetail> { PlaceholderScreen("Detalle de bicicleta") }
-        composable<Route.AddBike> { PlaceholderScreen("Cargar bicicleta") }
+        composable<Route.AddBike> {
+            AddBikeScreen(
+                // Se vuelve al listado sacando el alta del back stack: después de
+                // registrar, "atrás" tiene que llevar a la lista, no al formulario
+                // de una bici que ya se creó.
+                onCreated = {
+                    navController.popBackStack(Route.MyBikes, inclusive = false)
+                },
+                onBack = { navController.popBackStack() },
+            )
+        }
         composable<Route.UpdateComponents> { PlaceholderScreen("Actualizar componentes") }
         composable<Route.Subscription> { PlaceholderScreen("Plan de búsqueda") }
         composable<Route.ReportTheft> { PlaceholderScreen("Reportar robo") }

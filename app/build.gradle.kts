@@ -26,13 +26,28 @@ android {
 
     buildTypes {
         debug {
-            // 10.0.2.2 es el loopback del host visto desde el emulador. En un
-            // teléfono físico esto no resuelve: hay que apuntar a la IP de la
-            // máquina en la LAN, y para eso está el override en runtime
-            // (ApiEnvironment) — el equivalente del localStorage.setItem('apiBase')
-            // que usa el front web, que existe porque el DHCP cambia la IP.
-            buildConfigField("String", "DEFAULT_API_BASE", "\"http://10.0.2.2:8000\"")
-            buildConfigField("String", "DEFAULT_AUTH_SSO_BASE", "\"http://10.0.2.2:8084\"")
+            // `localhost` desde el dispositivo, resuelto por `adb reverse`:
+            //
+            //   adb reverse tcp:8000 tcp:8000
+            //   adb reverse tcp:8084 tcp:8084
+            //
+            // Es lo que hace que el teléfono conectado por USB alcance el backend
+            // que corre en esta máquina. Se eligió sobre las dos alternativas:
+            //
+            //   - `10.0.2.2` sólo existe dentro del emulador; en un teléfono real
+            //     no resuelve nada.
+            //   - La IP de la LAN funciona, pero hay que perseguirla: el DHCP se
+            //     la cambia al router y entonces la app deja de conectar sin que
+            //     nada haya cambiado en el código. Es exactamente la queja que
+            //     motivó el override por `localStorage` en el front web.
+            //
+            // `adb reverse` no depende de wifi ni de IPs, y sirve igual en el
+            // emulador. El precio es que hay que volver a correrlo cada vez que se
+            // reconecta el dispositivo — si la app no conecta, es lo primero a
+            // revisar. Para apuntar a otro backend sin recompilar está el override
+            // en runtime de ApiEnvironment.
+            buildConfigField("String", "DEFAULT_API_BASE", "\"http://localhost:8000\"")
+            buildConfigField("String", "DEFAULT_AUTH_SSO_BASE", "\"http://localhost:8084\"")
         }
         release {
             optimization {
@@ -67,6 +82,7 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.coil.compose)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.datetime)
     implementation(libs.retrofit)

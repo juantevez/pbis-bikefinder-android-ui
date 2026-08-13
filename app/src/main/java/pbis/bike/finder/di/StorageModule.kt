@@ -6,6 +6,8 @@ import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import pbis.bike.finder.data.local.TokenStorage
 import pbis.bike.finder.data.local.TokenStore
+import pbis.bike.finder.data.repository.PhotoRepository
+import pbis.bike.finder.data.repository.PhotoUploader
 import javax.inject.Singleton
 
 @Module
@@ -15,4 +17,8 @@ abstract class StorageModule {
     @Binds
     @Singleton
     abstract fun bindTokenStorage(impl: TokenStore): TokenStorage
+
+    @Binds
+    @Singleton
+    abstract fun bindPhotoUploader(impl: PhotoRepository): PhotoUploader
 }

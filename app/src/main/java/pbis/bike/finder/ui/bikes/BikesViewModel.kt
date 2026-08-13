@@ -34,10 +34,17 @@ class BikesViewModel @Inject constructor(
     val state: StateFlow<BikesUiState> = _state.asStateFlow()
 
     init {
-        load()
         loadProfile()
     }
 
+    /**
+     * Recarga el listado.
+     *
+     * La llama la pantalla en cada `onResume` y no el `init`: el ViewModel
+     * sobrevive a la navegación —está atado a la entrada del back stack—, así que
+     * al volver de registrar una bici el `init` ya corrió y la lista mostraría el
+     * estado viejo, sin la bici recién creada.
+     */
     fun load() {
         _state.update { it.copy(loading = true, error = null) }
 

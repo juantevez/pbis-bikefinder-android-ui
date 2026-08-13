@@ -6,6 +6,8 @@ import pbis.bike.finder.data.remote.apiCall
 import pbis.bike.finder.data.remote.api.BicycleApi
 import pbis.bike.finder.data.remote.dto.BicycleDto
 import pbis.bike.finder.data.remote.dto.BicycleSummaryDto
+import pbis.bike.finder.data.remote.dto.RegisterFromCatalogRequestDto
+import pbis.bike.finder.data.remote.dto.RegisterManuallyRequestDto
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -38,4 +40,12 @@ class BicycleRepository @Inject constructor(
      */
     suspend fun bicycle(id: String): ApiResult<BicycleDto> =
         apiCall(json) { api.detail(id) }
+
+    suspend fun registerFromCatalog(
+        body: RegisterFromCatalogRequestDto,
+    ): ApiResult<BicycleDto> = apiCall(json) { api.registerFromCatalog(body) }
+
+    suspend fun registerManually(
+        body: RegisterManuallyRequestDto,
+    ): ApiResult<BicycleDto> = apiCall(json) { api.registerManually(body) }
 }

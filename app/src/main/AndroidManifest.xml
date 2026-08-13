@@ -5,6 +5,17 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!--
+      Necesario para que las fotos conserven su GPS al leerlas. Desde Android 10
+      el sistema se lo quita a lo que entrega, salvo que la app tenga este permiso
+      y pida el original explícitamente.
+
+      Se solicita en runtime SOLO cuando el usuario marca el consentimiento de
+      análisis GPS en el alta de bicicleta. Sin esto ese checkbox no haría nada:
+      el usuario autorizaría analizar un dato que el sistema ya borró.
+    -->
+    <uses-permission android:name="android.permission.ACCESS_MEDIA_LOCATION" />
+
     <application
         android:name=".BikeFinderApp"
         android:allowBackup="true"
