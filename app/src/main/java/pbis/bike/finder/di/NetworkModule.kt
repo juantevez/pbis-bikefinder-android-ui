@@ -124,13 +124,33 @@ object NetworkModule {
         .build()
 
     /**
-     * El [AuthApi] que usa `SessionManager` para refrescar. Va sobre el cliente
-     * sin authenticator; el resto de la app recibe el mismo tipo construido
-     * sobre el cliente normal.
+     * `AuthApi` **con** Bearer y renovación: el que usa toda la app.
+     *
+     * `/auth/me` y `/auth/logout` necesitan token. Las rutas públicas de esta
+     * misma interfaz (login, registro, reset) lo evitan con `X-Skip-Auth`, así
+     * que una sola instancia autenticada sirve para todo el servicio.
      */
     @Provides
     @Singleton
-    fun provideAuthApi(@RefreshClient client: OkHttpClient, json: Json): AuthApi =
+    fun provideAuthApi(client: OkHttpClient, json: Json): AuthApi =
+        retrofit(client, json).create(AuthApi::class.java)
+
+    /**
+     * `AuthApi` **sin** authenticator, exclusivo para renovar la sesión.
+     *
+     * Va sobre [provideRefreshClient] porque un 401 en `/auth/refresh` no puede
+     * disparar otro refresh: sería recursión sin fondo.
+     *
+     * Está calificado y separado del anterior porque tenerlos unificados fue un
+     * bug real: con un único binding sobre el cliente sin interceptor, `/auth/me`
+     * salía **sin** `Authorization` y devolvía 401 en silencio. El nombre del
+     * usuario simplemente no aparecía, y ningún test lo vio porque los de
+     * integración arman su propio cliente autenticado.
+     */
+    @Provides
+    @Singleton
+    @RefreshClient
+    fun provideRefreshAuthApi(@RefreshClient client: OkHttpClient, json: Json): AuthApi =
         retrofit(client, json).create(AuthApi::class.java)
 
     @Provides

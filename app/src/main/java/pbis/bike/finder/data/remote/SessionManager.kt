@@ -7,6 +7,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import pbis.bike.finder.data.local.TokenStorage
 import pbis.bike.finder.data.remote.api.AuthApi
+import pbis.bike.finder.di.RefreshClient
 import pbis.bike.finder.data.remote.dto.RefreshTokenRequestDto
 import javax.inject.Inject
 import javax.inject.Provider
@@ -53,7 +54,7 @@ sealed interface SessionEvent {
 @Singleton
 class SessionManager @Inject constructor(
     private val tokenStore: TokenStorage,
-    private val refreshApi: Provider<AuthApi>,
+    @RefreshClient private val refreshApi: Provider<AuthApi>,
 ) {
     private val refreshMutex = Mutex()
 
