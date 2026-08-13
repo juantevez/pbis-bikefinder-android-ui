@@ -1,15 +1,38 @@
-*.iml
+# ─── Build ───────────────────────────────────────────────────────────────────
 .gradle
-/local.properties
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
-.DS_Store
 /build
 /captures
 .externalNativeBuild
 .cxx
-local.properties
+
+# Directorio de sesiones del compilador de Kotlin 2.x. Aparece en la raíz apenas
+# se compila y hoy está vacío, así que git no lo muestra — pero en cuanto tenga
+# archivos se cuela en un `git add .` sin que nadie lo note.
+.kotlin
+
+# Salida de `assembleRelease`. No cae bajo /build: AGP la escribe en app/release,
+# con el APK y su output-metadata.json.
+/app/release
+
+# ─── Configuración local ─────────────────────────────────────────────────────
+# local.properties tiene la ruta del SDK de esta máquina (sdk.dir). Commitearlo
+# rompe el build de cualquier otro que clone: apunta a un directorio que no existe.
+/local.properties
+
+*.iml
+/.idea
+
+# ─── Material de firma ───────────────────────────────────────────────────────
+# Todavía no hay ninguno, y por eso se agrega ahora: cuando aparezca el keystore
+# para firmar un release, el momento de acordarse de ignorarlo es antes de que
+# exista, no después de haberlo pusheado. Un keystore filtrado permite publicar
+# actualizaciones que Android acepta como propias de esta app, y no se puede rotar.
+*.jks
+*.keystore
+keystore.properties
+signing.properties
+
+# ─── Ruido de diagnóstico ────────────────────────────────────────────────────
+*.hprof
+*.log
+.DS_Store
