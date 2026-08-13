@@ -620,6 +620,44 @@ primera pantalla para que no haya que acordarse en las que sí escriben.
    gateway rutee **y** que `bike-registration` esté sirviendo, que es exactamente lo
    que esos tests necesitan.
 
+## Estado: Fase 2 (alta de bicicleta)
+
+**52 tests en verde, 8 contra el backend real**, uno de ellos crea una bici de punta a
+punta y verifica que aparezca en el listado. La UI sigue sin ejecutarse: no hay
+dispositivo ni AVD.
+
+Wizard en sus dos modos (`ui/addbike/`), con la cascada portada del front web:
+marca → modelos → detalle → colorway + talle. **Sin fotos**: van por media-service, que
+depende de Kafka y queda fuera del subconjunto mínimo.
+
+### Reglas de la cascada que no son cosméticas
+
+- **Cambiar de modelo resetea el colorway.** Los colorways pertenecen a un modelo; sin el
+  reseteo se manda un `colorwayId` ajeno, el backend **lo descarta en silencio** y la bici
+  queda guardada con color "unknown". Es un bug que el front web tuvo y arregló
+  (`cargar-bici.js:170-176`).
+- **El colorway por defecto es el marcado `isDefault`**, no el primero de la lista.
+- **Los talles vienen de dos fuentes distintas**: desde catálogo, del modelo
+  (`availableSizes` — los que ese modelo realmente tuvo); en manual, del sistema de
+  talles del tipo (`/catalog/size-systems/{id}/sizes`). Confundirlas ofrece talles
+  inexistentes para ese modelo.
+- **Color de lista y color personalizado se excluyen.** Mandar los dos deja al backend
+  elegir, que es como se guardan bicis con un color que el dueño no eligió.
+- **Los textos vacíos se mandan como `null`, no como `""`.** No significan lo mismo: una
+  cadena vacía es un número de serie vacío guardado.
+
+### Hallazgos del catálogo real
+
+1. **Sólo 2 de 11 marcas tienen modelos** (Giant y Specialized). Las otras 9 dan un
+   desplegable vacío. La app lo dice explícitamente ("Esta marca no tiene modelos
+   cargados") en vez de mostrar una lista vacía, pero es un callejón sin salida para el
+   82% de las marcas ofrecidas — vale la pena decidir si conviene ocultar las marcas sin
+   modelos, o cargar el catálogo.
+2. **El gateway limita a ráfaga de 10 y 5/s por IP** (`RedisRateLimiter(5, 10, 1)` en
+   `RateLimitConfig.java:97`). Recorrer las 11 marcas para encontrar una con modelos
+   devuelve **429**. Importa para la app: el límite es por IP, así que varios usuarios
+   detrás del mismo NAT comparten el bucket.
+
 ## Correcciones a lo que dije antes de leer el backend
 
 - **Sí hay OpenAPI.** `springdoc` está en el `pom.xml` de la mayoría de los servicios, con
