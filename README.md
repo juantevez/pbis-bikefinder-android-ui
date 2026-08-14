@@ -126,6 +126,16 @@ Decisiones que no se ven leyendo el código:
 - **`X-Idempotency-Key` va como parámetro explícito**, no la pone un interceptor: tiene
   que ser la misma en todos los reintentos de un pago.
 - **Sin dynamic color**: la paleta crema/dorada es identidad de marca.
+- **Las fuentes van bundleadas, no descargadas.** Cormorant Garamond y DM Sans (las mismas
+  del front web) viven en `res/font` en vez de bajarse con `ui-text-google-fonts`. Cuestan
+  ~670 KB de APK; a cambio la app abre con la tipografía de marca sin conexión y sin Google
+  Play Services. Son instancias estáticas porque `res/font` recién soporta fuentes
+  variables desde API 26 y el `minSdk` es 24. Licencias en [`licenses/`](licenses).
+- **Sólo se bundlean los pesos que la web usa**: Cormorant 400/600 y DM Sans 400/500. El
+  `<link>` de Google Fonts del front pide más de los que aplica, y el único 700 del CSS
+  está en el panel de administración, que no se porta. Los tamaños de título salen del
+  CSS; los de cuerpo y etiquetas no, porque la web baja a 11-13px y en un teléfono eso no
+  se lee.
 - **La denuncia no se manda sin ubicación, y se valida en el cliente.** Alcanza con la
   localidad o con el punto del GPS; la calle sola no cuenta, porque tampoco cuenta para el
   backend. Enviar y que el servidor rechace no es equivalente: el reporte se persiste
@@ -160,10 +170,8 @@ usuario autorizaría analizar un dato que el sistema ya borró.
    con Keystore es trabajo real. Quedan excluidos del backup, que es el mínimo. Antes de
    producción: cifrar, o acortar la vida del refresh token para que robarlo valga poco.
 2. **OAuth social sin resolver** — el ítem de mayor fricción.
-3. **Tipografía sin portar**: el front usa Cormorant Garamond y DM Sans; la app se ve con
-   la fuente del sistema.
-4. **Credenciales de prueba en el código** (`BackendIntegrationTest`). Sólo sirven contra
+3. **Credenciales de prueba en el código** (`BackendIntegrationTest`). Sólo sirven contra
    un backend local, pero conviene sacarlas a variables de entorno.
-5. **Fechas inconsistentes en el backend**: `media-service` serializa `LocalDateTime` como
+4. **Fechas inconsistentes en el backend**: `media-service` serializa `LocalDateTime` como
    array JSON y el resto como ISO. El cliente tolera ambas, pero el arreglo de fondo es
    del servidor.
