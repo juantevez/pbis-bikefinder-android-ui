@@ -160,6 +160,8 @@ data class ContactDto(
 @Serializable
 data class RewardDto(
     val offered: Boolean = false,
+    /** Mismo caso que el pago: viaja como número JSON. */
+    @Serializable(with = LenientAmountSerializer::class)
     val amount: String? = null,
     val currency: String? = null,
     /** Ya formateado por el backend, listo para mostrar. */

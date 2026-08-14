@@ -6,6 +6,14 @@ import kotlinx.datetime.toInstant
 import kotlinx.serialization.json.Json
 import java.math.BigDecimal
 import kotlinx.datetime.Instant
+import kotlinx.serialization.KSerializer
+import kotlinx.serialization.descriptors.PrimitiveKind
+import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
+import kotlinx.serialization.json.JsonDecoder
+import kotlinx.serialization.json.jsonPrimitive
 
 /**
  * Decisiones de mapeo que valen para todos los DTOs de este paquete.
@@ -157,4 +165,32 @@ enum class RetryAdvice {
             else -> Unsafe
         }
     }
+}
+
+/**
+ * Lee un monto que el backend puede mandar como número **o** como cadena.
+ *
+ * Los importes viajan en DTOs como `String` a propósito: son `BigDecimal` del
+ * lado de Java y pasarlos por `Double` pierde centavos. El problema es que
+ * Jackson los serializa como número JSON —`"amount":18.99`, sin comillas— y
+ * kotlinx-serialization se niega a leer un número dentro de un `String`.
+ *
+ * El síntoma no fue un campo vacío sino un pago **cobrado** que la app reportó
+ * como "no se pudo interpretar la respuesta": el 201 traía `COMPLETED` y la
+ * deserialización moría antes de que nadie lo mirara.
+ *
+ * Se toma el texto crudo del primitivo en vez de pasar por `Double`, así
+ * `18.99` sigue siendo `"18.99"` y no `18.989999999999998`.
+ */
+object LenientAmountSerializer : KSerializer<String> {
+    override val descriptor: SerialDescriptor =
+        PrimitiveSerialDescriptor("LenientAmount", PrimitiveKind.STRING)
+
+    override fun deserialize(decoder: Decoder): String {
+        val json = decoder as? JsonDecoder ?: return decoder.decodeString()
+        return json.decodeJsonElement().jsonPrimitive.content
+    }
+
+    /** De vuelta siempre como cadena: es lo que el backend acepta en los request. */
+    override fun serialize(encoder: Encoder, value: String) = encoder.encodeString(value)
 }

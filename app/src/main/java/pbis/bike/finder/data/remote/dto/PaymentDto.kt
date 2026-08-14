@@ -1,5 +1,6 @@
 package pbis.bike.finder.data.remote.dto
 
+import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.Serializable
 import kotlinx.datetime.Instant
 
@@ -56,7 +57,17 @@ data class CreatePaymentRequestDto(
     /**
      * 1..48. El front web manda siempre 1: las cuotas están disponibles sin
      * tocar backend.
+     *
+     * **`@EncodeDefault` no es decorativo.** kotlinx-serialization omite del JSON
+     * los campos que valen su default, y el backend marca este con `@NotNull`:
+     * sin la anotación el payload sale sin `installments` y todo pago muere con
+     * `400 VALIDATION_ERROR — installments is required`. El front web no lo sufre
+     * porque arma el objeto a mano y escribe `installments: 1` explícito.
+     *
+     * Es el único campo del contrato con un default no nulo, y por eso el único
+     * que necesita esto.
      */
+    @EncodeDefault
     val installments: Int = 1,
 ) {
     companion object {
@@ -71,6 +82,8 @@ data class PaymentResponseDto(
     val paymentId: String,
     val externalOrderId: String? = null,
     val status: PaymentStatus? = null,
+    /** Llega como número JSON (`18.99`), no como cadena. Ver [LenientAmountSerializer]. */
+    @Serializable(with = LenientAmountSerializer::class)
     val amount: String? = null,
     val currency: String? = null,
     val payerEmail: String? = null,

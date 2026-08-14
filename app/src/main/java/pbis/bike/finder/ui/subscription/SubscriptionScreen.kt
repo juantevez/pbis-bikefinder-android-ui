@@ -338,6 +338,10 @@ private fun PaymentDialog(
                     onValueChange = viewModel::setCardNumber,
                     label = { Text("Número de tarjeta") },
                     placeholder = { Text("0000 0000 0000 0000") },
+                    // El agrupado es sólo visual: el estado guarda dígitos
+                    // pelados, o el texto crecería bajo el cursor mientras se
+                    // escribe y cada cuarto dígito entraría corrido.
+                    visualTransformation = CardNumberTransformation,
                     isError = state.cardErrors.containsKey("numero"),
                     supportingText = { state.cardErrors["numero"]?.let { Text(it) } },
                     keyboardOptions = KeyboardOptions(
@@ -354,6 +358,7 @@ private fun PaymentDialog(
                         onValueChange = viewModel::setCardExpiry,
                         label = { Text("Vencimiento") },
                         placeholder = { Text("MM/AA") },
+                        visualTransformation = ExpiryTransformation,
                         isError = state.cardErrors.containsKey("vencimiento"),
                         supportingText = { state.cardErrors["vencimiento"]?.let { Text(it) } },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),

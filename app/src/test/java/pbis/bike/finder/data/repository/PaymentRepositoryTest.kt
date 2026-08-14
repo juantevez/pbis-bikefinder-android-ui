@@ -202,6 +202,37 @@ class PaymentRepositoryTest {
         assertEquals(1, keyStore.keys.size)
     }
 
+    /**
+     * Regresión: un 400 de validación se clasificaba como incierto.
+     *
+     * Le decía al usuario "si reintentás no se cobra dos veces" sobre un cobro
+     * que nunca ocurrió, y le ofrecía reintentar un payload que iba a fallar
+     * exactamente igual. Se vio en el teléfono con `installments is required`.
+     */
+    @Test
+    fun `un 400 de validacion no es incierto — no se cobro nada`() = runTest {
+        val keyStore = FakeKeyStore()
+        val sut = repository(FakePaymentApi(onCreate = { throw httpError(400) }), keyStore)
+
+        val outcome = sut.pay()
+
+        assertTrue(outcome is PaymentOutcome.Invalid)
+        // El intento no existió del lado del servidor: la clave no protege nada.
+        assertTrue(keyStore.keys.isEmpty())
+    }
+
+    @Test
+    fun `un 429 si deja duda aunque sea 4xx`() = runTest {
+        // El rate limit puede haber cortado la respuesta, no la request.
+        val keyStore = FakeKeyStore()
+        val sut = repository(FakePaymentApi(onCreate = { throw httpError(429) }), keyStore)
+
+        val outcome = sut.pay()
+
+        assertTrue(outcome is PaymentOutcome.Uncertain)
+        assertEquals(1, keyStore.keys.size)
+    }
+
     @Test
     fun `la orden externa se deriva de la clave y no de un timestamp`() = runTest {
         // Un reintento tiene que referirse a la misma operación, no inventar una

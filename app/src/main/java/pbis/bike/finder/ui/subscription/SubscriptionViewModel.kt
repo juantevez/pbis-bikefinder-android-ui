@@ -96,21 +96,19 @@ class SubscriptionViewModel @Inject constructor(
 
     fun setCardName(value: String) = _state.update { it.copy(cardName = value) }
 
-    /** Reformatea a grupos de cuatro mientras se escribe, como la web. */
+    /**
+     * Guarda **sólo dígitos**. Los espacios y la barra los pone la pantalla con
+     * una `VisualTransformation`; ver [CardNumberTransformation].
+     *
+     * Reformatear acá dentro fue un bug real: el texto crecía bajo el cursor
+     * mientras el usuario escribía y cada cuarto dígito entraba corrido.
+     */
     fun setCardNumber(value: String) = _state.update {
-        val digits = value.filter(Char::isDigit).take(16)
-        it.copy(cardNumber = digits.chunked(4).joinToString(" "))
+        it.copy(cardNumber = value.filter(Char::isDigit).take(MAX_CARD_DIGITS))
     }
 
     fun setCardExpiry(value: String) = _state.update {
-        val digits = value.filter(Char::isDigit).take(4)
-        it.copy(
-            cardExpiry = if (digits.length >= 3) {
-                "${digits.take(2)}/${digits.drop(2)}"
-            } else {
-                digits
-            },
-        )
+        it.copy(cardExpiry = value.filter(Char::isDigit).take(MAX_EXPIRY_DIGITS))
     }
 
     fun setCardCvc(value: String) = _state.update {
@@ -133,7 +131,7 @@ class SubscriptionViewModel @Inject constructor(
             it.copy(submitting = true, cardErrors = emptyMap(), paymentError = null)
         }
 
-        val digits = current.cardNumber.filter(Char::isDigit)
+        val digits = current.cardNumber
 
         viewModelScope.launch {
             val outcome = paymentRepository.payForPlan(
@@ -160,13 +158,25 @@ class SubscriptionViewModel @Inject constructor(
                     )
                 }
 
+                is PaymentOutcome.Invalid -> _state.update {
+                    it.copy(
+                        submitting = false,
+                        uncertain = false,
+                        // No se cobró, y reintentar con los mismos datos falla
+                        // igual: el problema es del payload, no de la tarjeta.
+                        paymentError = "No se pudo procesar el pago y no se hizo " +
+                            "ningún cobro. " + (outcome.reason ?: "La app mandó datos " +
+                            "que el servidor no acepta."),
+                    )
+                }
+
                 is PaymentOutcome.Uncertain -> _state.update {
                     it.copy(
                         submitting = false,
                         uncertain = true,
-                        paymentError = outcome.error.toUserMessage(
-                            "No se pudo confirmar el pago.",
-                        ) + " Si reintentás no se cobra dos veces.",
+                        paymentError = outcome.error
+                            .toUserMessage("No se pudo confirmar el pago.")
+                            .trimEnd('.') + ". Si reintentás no se cobra dos veces.",
                     )
                 }
             }
@@ -176,13 +186,12 @@ class SubscriptionViewModel @Inject constructor(
     private fun validateCard(s: SubscriptionUiState): Map<String, String> = buildMap {
         if (s.cardName.isBlank()) put("nombre", "Poné el nombre como figura en la tarjeta.")
 
-        val digits = s.cardNumber.filter(Char::isDigit)
-        if (digits.length < 13) put("numero", "El número está incompleto.")
+        if (s.cardNumber.length < 13) put("numero", "El número está incompleto.")
 
-        if (!EXPIRY_REGEX.matches(s.cardExpiry)) {
-            put("vencimiento", "Usá el formato MM/AA.")
+        if (s.cardExpiry.length < MAX_EXPIRY_DIGITS) {
+            put("vencimiento", "Poné mes y año, MM/AA.")
         } else if (s.cardExpiry.take(2).toInt() !in 1..12) {
-            // El regex acepta "19/28"; el mes no existe y el backend lo
+            // "19/28" tiene cuatro dígitos y un mes que no existe; el backend lo
             // rechazaría después de un viaje de ida y vuelta.
             put("vencimiento", "El mes no existe.")
         }
@@ -191,7 +200,6 @@ class SubscriptionViewModel @Inject constructor(
     }
 
     private companion object {
-        val EXPIRY_REGEX = Regex("""^\d{2}/\d{2}$""")
         const val FALLBACK_EMAIL = "sin-email@bikefinder.com"
     }
 }

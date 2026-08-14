@@ -389,6 +389,76 @@ class DtoContractTest {
 
     private fun LocalitySearchResponseDto.adminLevel1Id() = results.single().adminLevel1?.id
 
+    /**
+     * Regresión: `installments` vale 1 por default y kotlinx-serialization omite
+     * los defaults, así que el payload salía sin el campo y el backend —que lo
+     * marca `@NotNull`— mataba **todo** pago con
+     * `400 VALIDATION_ERROR — installments is required`.
+     *
+     * El front web no lo sufre porque arma el JSON a mano.
+     */
+    @Test
+    fun `el pago manda installments aunque valga el default`() {
+        val req = CreatePaymentRequestDto(
+            externalOrderId = "theft-bici-1-sabueso-clave",
+            amount = "18.99",
+            currency = "USD",
+            payerEmail = "juan@example.com",
+            description = "Plan Sabueso",
+            cardToken = "tok_7008_369",
+            paymentMethodId = "master",
+        )
+
+        val serializado = json.encodeToString(req)
+
+        assertTrue(serializado.contains("\"installments\":1"))
+    }
+
+    /**
+     * Regresión: el backend manda los importes como **número** JSON —Jackson
+     * serializa así los `BigDecimal`— y el DTO los declara `String`, que
+     * kotlinx-serialization se niega a leer desde un número.
+     *
+     * El síntoma no fue un campo vacío: fue un pago **cobrado** que la app
+     * reportó como "no se pudo interpretar la respuesta". El 201 traía
+     * `COMPLETED` y la deserialización moría antes de que nadie lo mirara.
+     */
+    @Test
+    fun `el monto del pago se lee aunque venga sin comillas`() {
+        val payload = """
+            {
+              "paymentId": "62c27a61-31a7-4e54-a8e6-41ebe2592a49",
+              "status": "COMPLETED",
+              "amount": 18.99,
+              "currency": "USD",
+              "gatewayReference": "STUB-73f55aed",
+              "failureReason": null
+            }
+        """.trimIndent()
+
+        val res = json.decodeFromString<PaymentResponseDto>(payload)
+
+        assertEquals(PaymentStatus.COMPLETED, res.status)
+        // Se conserva el texto exacto: pasar por Double daría 18.989999999999998.
+        assertEquals("18.99", res.amount)
+    }
+
+    @Test
+    fun `el monto tambien se lee si viniera entrecomillado`() {
+        val res = json.decodeFromString<PaymentResponseDto>(
+            """{"paymentId":"p-1","amount":"18.99"}""",
+        )
+
+        assertEquals("18.99", res.amount)
+    }
+
+    @Test
+    fun `la recompensa de la denuncia tiene el mismo tratamiento`() {
+        val res = json.decodeFromString<RewardDto>("""{"offered":true,"amount":250.00}""")
+
+        assertEquals("250.00", res.amount)
+    }
+
     @Test
     fun `el telefono se valida contra el mismo regex que el backend`() {
         assertTrue(E164_REGEX.matches("+5491122334455"))

@@ -29,6 +29,16 @@ sealed interface PaymentOutcome {
     data class Paid(val payment: PaymentResponseDto) : PaymentOutcome
     data class Rejected(val reason: String?) : PaymentOutcome
     data class Uncertain(val error: ApiResult<Nothing>) : PaymentOutcome
+
+    /**
+     * El servidor rechazó la request antes de intentar cobrar.
+     *
+     * No es [Rejected] —la tarjeta no dijo nada— ni [Uncertain] —no hay ninguna
+     * duda de que no se cobró—. Es un bug del cliente: el payload no cumple el
+     * contrato. Reintentar con los mismos datos falla igual, así que ofrecerlo
+     * sería mentir dos veces.
+     */
+    data class Invalid(val reason: String?) : PaymentOutcome
 }
 
 @Singleton
@@ -81,19 +91,40 @@ class PaymentRepository @Inject constructor(
     }
 
     /**
-     * Un 422 es el único fracaso que se puede dar por definitivo.
+     * Traduce el status a "se cobró, no se cobró, o no sabemos".
      *
-     * Cualquier otro código —503, 500, un timeout del gateway— deja el cobro en
-     * duda, y ahí la clave **no** se toca.
+     * Lo único que de verdad importa es la última pregunta, porque decide si la
+     * clave sobrevive:
+     *
+     *  - **422** — la tarjeta rechazó. No se cobró, y el rechazo quedó guardado
+     *    con esa clave: hay que descartarla o el backend repetiría el mismo "no".
+     *  - **400 y el resto de los 4xx** — el servidor descartó la request antes de
+     *    tocar el gateway. Tampoco se cobró. Se descarta la clave: el intento
+     *    nunca existió del lado del servidor.
+     *  - **5xx, timeouts, 429** — acá **sí** hay duda, y es la única familia
+     *    donde la clave se conserva.
+     *
+     * Tratar un 400 como incierto —que es lo que hacía antes— le decía al usuario
+     * "si reintentás no se cobra dos veces" sobre un cobro que jamás ocurrió, y
+     * le ofrecía reintentar un payload que iba a fallar exactamente igual.
      */
     private suspend fun ApiResult.HttpError.toOutcome(
         bicycleId: String,
         slot: String,
-    ): PaymentOutcome = if (code == 422) {
-        keyStore.discard(bicycleId, slot)
-        PaymentOutcome.Rejected(userMessage)
-    } else {
-        PaymentOutcome.Uncertain(this)
+    ): PaymentOutcome = when {
+        code == 422 -> {
+            keyStore.discard(bicycleId, slot)
+            PaymentOutcome.Rejected(userMessage)
+        }
+
+        // 408 y 429 son 4xx que no dicen nada sobre el cobro: la request pudo
+        // haber llegado igual.
+        code in 400..499 && code != 408 && code != 429 -> {
+            keyStore.discard(bicycleId, slot)
+            PaymentOutcome.Invalid(userMessage)
+        }
+
+        else -> PaymentOutcome.Uncertain(this)
     }
 
     /** Consulta el pago hasta que el estado deje de ser transitorio. */
