@@ -36,7 +36,17 @@ class MainViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             val hasSession = authRepository.hasSession.first()
-            _startDestination.value = if (hasSession) Route.MyBikes else Route.Landing
+            // Con sesión se entra por el dashboard, no por el listado de bicis.
+            //
+            // Arrancar en `MyBikes` dejaba el dashboard **inalcanzable**: es la
+            // raíz del back stack y desde el listado no se navega hacia él, así
+            // que "atrás" cerraba la app. Con el dashboard fuera de alcance
+            // quedaban fuera también las cuatro acciones que sólo viven ahí
+            // —denunciar, componentes, mis denuncias— hasta cerrar sesión.
+            //
+            // El dashboard es el hub en el front web (`login → dashboard.html`)
+            // y el listado se abre desde una de sus tarjetas.
+            _startDestination.value = if (hasSession) Route.Dashboard else Route.Landing
         }
     }
 }
