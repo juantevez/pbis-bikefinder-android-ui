@@ -210,6 +210,19 @@ fun ReportTheftScreen(
                 )
             }
 
+            // Aviso, no error: la denuncia se puede presentar así. Lo que no
+            // sirve es el cartel público, y eso no se nota mirando el PDF
+            // privado —que sí muestra la calle—, así que hay que decirlo acá.
+            if (state.publicReportWithoutArea) {
+                Text(
+                    text = "El punto del mapa alcanza para denunciar, pero el cartel " +
+                        "público sólo muestra la localidad. Sin elegirla va a salir " +
+                        "sin ninguna zona.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
             Dropdown(
                 label = "Tipo de vía",
                 options = StreetType.entries,
@@ -567,6 +580,20 @@ private fun LocationSection(
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onPrimaryContainer,
                     )
+                    // La localidad se muestra aparte y con su jerarquía porque es
+                    // lo único que va a salir en el cartel público: el usuario
+                    // tiene que poder ver que dice el partido correcto antes de
+                    // aceptar. La calle, en cambio, sólo la ve él.
+                    state.resolvedLocality?.let { locality ->
+                        Text(
+                            text = locality.fullName
+                                ?: listOfNotNull(locality.name, locality.adminLevel1?.name)
+                                    .joinToString(", "),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
                     Row {
                         TextButton(onClick = onApplyAddress) { Text("Usar esta dirección") }
                         TextButton(onClick = onDiscardAddress) { Text("Descartar") }

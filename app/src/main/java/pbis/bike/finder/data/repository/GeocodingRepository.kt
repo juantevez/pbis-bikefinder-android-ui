@@ -21,6 +21,17 @@ data class ResolvedAddress(
     val streetNumber: String?,
     /** Para mostrar: "Av. 7 1234, La Plata". */
     val display: String?,
+    /**
+     * El nombre de la localidad según OSM (`city`/`town`/`village`, las tres
+     * alternativas del mismo dato).
+     *
+     * No se manda a ningún lado: es el término con el que se le pregunta al
+     * catálogo del backend cuál es el `localityId`. La denuncia sigue viajando
+     * con el id del backend y nunca con una cadena de OSM.
+     */
+    val locality: String?,
+    /** `state` de OSM. Sólo para desempatar homónimos: hay un Belgrano por provincia. */
+    val province: String?,
 )
 
 @Singleton
@@ -40,6 +51,9 @@ class GeocodingRepository @Inject constructor(
 private fun NominatimReverseDto.toResolvedAddress(): ResolvedAddress {
     val road = address?.road?.trim()
     val (type, name) = parseStreet(road)
+    // `suburb` queda fuera a propósito: es el barrio, que en el catálogo del
+    // backend no es una localidad. Buscar "Palermo" traería otra cosa o nada.
+    val locality = address?.city ?: address?.town ?: address?.village
 
     return ResolvedAddress(
         streetType = type,
@@ -47,8 +61,10 @@ private fun NominatimReverseDto.toResolvedAddress(): ResolvedAddress {
         streetNumber = address?.houseNumber?.trim(),
         display = listOfNotNull(
             listOfNotNull(road, address?.houseNumber).joinToString(" ").ifBlank { null },
-            address?.city ?: address?.town ?: address?.village ?: address?.suburb,
+            locality ?: address?.suburb,
         ).joinToString(", ").ifBlank { displayName },
+        locality = locality?.trim()?.ifBlank { null },
+        province = address?.state?.trim()?.ifBlank { null },
     )
 }
 

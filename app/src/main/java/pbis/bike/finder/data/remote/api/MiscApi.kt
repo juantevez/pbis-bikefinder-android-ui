@@ -6,6 +6,7 @@ import pbis.bike.finder.data.remote.dto.AdminLevel2ListResponseDto
 import pbis.bike.finder.data.remote.dto.CountryListResponseDto
 import pbis.bike.finder.data.remote.dto.CreatePaymentRequestDto
 import pbis.bike.finder.data.remote.dto.LocalityListResponseDto
+import pbis.bike.finder.data.remote.dto.LocalitySearchResponseDto
 import pbis.bike.finder.data.remote.dto.NotificationPreferencesDto
 import pbis.bike.finder.data.remote.dto.NotificationPreferencesRequestDto
 import pbis.bike.finder.data.remote.dto.PaymentResponseDto
@@ -17,6 +18,7 @@ import retrofit2.http.Headers
 import retrofit2.http.POST
 import retrofit2.http.PUT
 import retrofit2.http.Path
+import retrofit2.http.Query
 
 /**
  * location-service. Sin autenticación.
@@ -42,6 +44,18 @@ interface GeoApi {
     @Headers("$HEADER_SKIP_AUTH: true")
     @GET("api/v1/level2/{departmentId}/localities")
     suspend fun localities(@Path("departmentId") departmentId: Int): LocalityListResponseDto
+
+    /**
+     * Búsqueda por texto. Cada resultado trae provincia y partido, así que
+     * resuelve la jerarquía entera en una sola request.
+     */
+    @Headers("$HEADER_SKIP_AUTH: true")
+    @GET("api/v1/localities/search")
+    suspend fun searchLocalities(
+        @Query("q") query: String,
+        @Query("countryId") countryId: Int? = null,
+        @Query("limit") limit: Int = 20,
+    ): LocalitySearchResponseDto
 }
 
 /** payment-service. */

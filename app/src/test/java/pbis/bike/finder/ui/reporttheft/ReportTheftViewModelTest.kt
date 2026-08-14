@@ -38,7 +38,9 @@ import pbis.bike.finder.data.remote.dto.BicycleDto
 import pbis.bike.finder.data.remote.dto.ConfirmPasswordResetDto
 import pbis.bike.finder.data.remote.dto.CountryListResponseDto
 import pbis.bike.finder.data.remote.dto.LocalityDto
+import pbis.bike.finder.data.remote.dto.LocalityFullDto
 import pbis.bike.finder.data.remote.dto.LocalityListResponseDto
+import pbis.bike.finder.data.remote.dto.LocalitySearchResponseDto
 import pbis.bike.finder.data.remote.dto.LoginRequestDto
 import pbis.bike.finder.data.remote.dto.LogoutRequestDto
 import pbis.bike.finder.data.remote.dto.PdfGeneratedDto
@@ -98,11 +100,14 @@ class ReportTheftViewModelTest {
     private class FakeGeoApi(
         var countries: () -> CountryListResponseDto = { CountryListResponseDto() },
         var localities: () -> LocalityListResponseDto = { LocalityListResponseDto() },
+        var search: () -> LocalitySearchResponseDto = { LocalitySearchResponseDto() },
     ) : GeoApi {
         override suspend fun countries() = countries.invoke()
         override suspend fun provinces(countryId: Int) = AdminLevel1ListResponseDto()
         override suspend fun departments(provinceId: Int) = AdminLevel2ListResponseDto()
         override suspend fun localities(departmentId: Int) = localities.invoke()
+        override suspend fun searchLocalities(query: String, countryId: Int?, limit: Int) =
+            search.invoke()
     }
 
     private class FakeNominatimApi(
@@ -307,7 +312,7 @@ class ReportTheftViewModelTest {
         val geoApi = FakeGeoApi(
             localities = {
                 LocalityListResponseDto(
-                    items = listOf(
+                    localities = listOf(
                         LocalityDto(id = 9, name = "La Plata", latitude = -34.92, longitude = -57.95),
                     ),
                 )
@@ -379,6 +384,112 @@ class ReportTheftViewModelTest {
         assertEquals(StreetType.AVENIDA, sut.state.value.streetType)
         assertEquals("1234", sut.state.value.streetNumber)
         assertNull(sut.state.value.resolvedAddress)
+    }
+
+    /**
+     * El caso que motivó todo esto: marcar el punto en el mapa producía una
+     * denuncia sin `localityId`, y el PDF público —que sólo muestra
+     * provincia/partido/localidad— salía sin ninguna ubicación.
+     */
+    @Test
+    fun `confirmar la direccion del mapa tambien fija la localidad`() = runTest {
+        val geoApi = FakeGeoApi(search = { searchResults(LA_PLATA) })
+        val sut = viewModel(geoApi = geoApi)
+        sut.start("bici-1")
+        advanceUntilIdle()
+
+        sut.setPoint(-34.9214, -57.9544)
+        sut.resolveAddress()
+        advanceUntilIdle()
+
+        // Propuesta, no aplicada: el usuario todavía no dijo que sí.
+        assertEquals(9, sut.state.value.resolvedLocality?.id)
+        assertNull(sut.state.value.localityId)
+
+        sut.applyResolvedAddress()
+        advanceUntilIdle()
+
+        assertEquals(9, sut.state.value.localityId)
+        // La cascada queda coherente: si no, el desplegable de provincia se ve
+        // vacío y tocarlo borra la localidad recién elegida.
+        assertEquals(1, sut.state.value.provinceId)
+        assertEquals(3, sut.state.value.departmentId)
+    }
+
+    @Test
+    fun `sin localidad se avisa que el cartel publico queda sin zona`() = runTest {
+        val sut = viewModel()
+        sut.start("bici-1")
+        advanceUntilIdle()
+
+        sut.setPoint(-34.9214, -57.9544)
+
+        // La denuncia es válida — el aviso no la bloquea.
+        assertTrue(sut.state.value.hasLocation)
+        assertTrue(sut.state.value.publicReportWithoutArea)
+    }
+
+    @Test
+    fun `elegir la localidad apaga el aviso del cartel publico`() = runTest {
+        val geoApi = FakeGeoApi(
+            localities = {
+                LocalityListResponseDto(localities = listOf(LocalityDto(id = 9, name = "La Plata")))
+            },
+        )
+        val sut = viewModel(geoApi = geoApi)
+        sut.start("bici-1")
+        advanceUntilIdle()
+
+        sut.setPoint(-34.9214, -57.9544)
+        sut.selectDepartment(3)
+        advanceUntilIdle()
+        sut.selectLocality(9)
+
+        assertTrue(!sut.state.value.publicReportWithoutArea)
+    }
+
+    @Test
+    fun `un homonimo sin provincia que lo desempate no se propone`() {
+        // Hay una Belgrano por provincia. Proponer la equivocada es peor que no
+        // proponer: el usuario confirma sin releer y la denuncia queda en otro lado.
+        val resultados = listOf(
+            LA_PLATA.copy(id = 20, name = "Belgrano"),
+            LA_PLATA.copy(id = 21, name = "Belgrano"),
+        )
+
+        assertNull(resultados.bestMatch("Belgrano", provinceName = null))
+        // Dos en la misma provincia tampoco alcanza para decidir.
+        assertNull(resultados.bestMatch("Belgrano", "Buenos Aires"))
+    }
+
+    @Test
+    fun `una coincidencia parcial no se propone`() {
+        // El backend busca por substring: "Morón" trae también "Villa Morón".
+        val resultados = listOf(LA_PLATA.copy(id = 30, name = "Villa Morón"))
+
+        assertNull(resultados.bestMatch("Morón", "Buenos Aires"))
+    }
+
+    @Test
+    fun `el match ignora acentos y mayusculas`() {
+        // OSM escribe "Ramos Mejía"; el catálogo, "RAMOS MEJIA".
+        val resultados = listOf(LA_PLATA.copy(id = 31, name = "RAMOS MEJIA"))
+
+        assertEquals(31, resultados.bestMatch("Ramos Mejía", "Buenos Aires")?.id)
+    }
+
+    @Test
+    fun `entre homonimos gana el de la provincia que dijo OSM`() {
+        val resultados = listOf(
+            LA_PLATA.copy(id = 40, name = "Belgrano"),
+            LA_PLATA.copy(
+                id = 41,
+                name = "Belgrano",
+                adminLevel1 = LocalityFullDto.AdminLevel1InfoDto(id = 2, name = "Santa Fe"),
+            ),
+        )
+
+        assertEquals(41, resultados.bestMatch("Belgrano", "Santa Fe")?.id)
     }
 
     @Test
@@ -576,4 +687,20 @@ class ReportTheftViewModelTest {
         assertNull(state.createdReportId)
         assertTrue(!state.submitting)
     }
+
+    // ── Fixtures del catálogo de localidades ─────────────────────────────────
+
+    /** Una localidad con la jerarquía completa, como la devuelve la búsqueda. */
+    private val LA_PLATA = LocalityFullDto(
+        id = 9,
+        name = "La Plata",
+        latitude = -34.92,
+        longitude = -57.95,
+        fullName = "La Plata, Buenos Aires, Argentina",
+        adminLevel2 = LocalityFullDto.AdminLevel2InfoDto(id = 3, name = "La Plata"),
+        adminLevel1 = LocalityFullDto.AdminLevel1InfoDto(id = 1, name = "Buenos Aires"),
+    )
+
+    private fun searchResults(vararg items: LocalityFullDto) =
+        LocalitySearchResponseDto(results = items.toList(), total = items.size)
 }

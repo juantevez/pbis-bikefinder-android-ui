@@ -19,8 +19,10 @@ data class CountryListResponseDto(
 )
 
 /**
- * Los niveles 1, 2 y localidades comparten forma de wrapper: `items` + `total`,
- * más el id del padre (`countryId`, etc.) que el cliente ya conoce.
+ * Los niveles 1 y 2 comparten forma de wrapper: `items` + `total`, más el id del
+ * padre (`countryId`, etc.) que el cliente ya conoce.
+ *
+ * **Las localidades no**: ver [LocalityListResponseDto].
  */
 @Serializable
 data class AdminLevel1ListResponseDto(
@@ -35,10 +37,25 @@ data class AdminLevel2ListResponseDto(
     val total: Int = 0,
 )
 
+/**
+ * El wrapper de localidades rompe el patrón: la lista viene en `localities`, no
+ * en `items` (`LocationDto.LocalityListResponse` del backend).
+ *
+ * Leerlo como `items` no fallaba: el default deja la lista vacía y el desplegable
+ * de localidad quedaba **siempre** vacío, sin error y sin nada que mirar —el
+ * `geoError` no se enciende porque la request salió 200. Eso hacía imposible
+ * elegir localidad y, como el punto del mapa alcanza para enviar, la denuncia se
+ * mandaba sin `localityId`; el PDF público, que sólo puede mostrar
+ * provincia/partido/localidad, salía sin ninguna ubicación.
+ *
+ * El test del ViewModel no lo agarra porque construye el DTO en Kotlin y nunca
+ * pasa por el JSON. Por eso el caso vive en `GeoDtoTest`, sobre el payload real.
+ */
 @Serializable
 data class LocalityListResponseDto(
-    val items: List<LocalityDto> = emptyList(),
+    val localities: List<LocalityDto> = emptyList(),
     val total: Int = 0,
+    val adminLevel2Id: Int? = null,
 )
 
 @Serializable

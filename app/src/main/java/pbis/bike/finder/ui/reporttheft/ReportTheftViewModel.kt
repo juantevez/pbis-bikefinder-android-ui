@@ -18,6 +18,7 @@ import pbis.bike.finder.data.remote.dto.AdminLevel1Dto
 import pbis.bike.finder.data.remote.dto.AdminLevel2Dto
 import pbis.bike.finder.data.remote.dto.CountryDto
 import pbis.bike.finder.data.remote.dto.LocalityDto
+import pbis.bike.finder.data.remote.dto.LocalityFullDto
 import pbis.bike.finder.data.remote.dto.ReportTheftRequestDto
 import pbis.bike.finder.data.remote.dto.TheftLocationDto
 import pbis.bike.finder.data.repository.BicycleRepository
@@ -27,9 +28,47 @@ import pbis.bike.finder.data.repository.GeocodingRepository
 import pbis.bike.finder.data.repository.ResolvedAddress
 import pbis.bike.finder.data.repository.TheftRepository
 import pbis.bike.finder.ui.common.toUserMessage
+import java.text.Normalizer
 import javax.inject.Inject
 
 private const val GEO_ERROR = "No se pudo cargar la lista de lugares."
+
+/**
+ * Elige qué localidad del catálogo corresponde al nombre que devolvió OSM.
+ *
+ * El backend busca por coincidencia parcial, así que "Morón" puede traer también
+ * "Villa Morón". Las reglas, en orden:
+ *
+ *  1. El nombre tiene que ser **igual**, no parecido. Un resultado parcial es
+ *     otro lugar, y proponer otro lugar es peor que no proponer nada: el usuario
+ *     confirma sin releer y la denuncia queda en un partido equivocado.
+ *  2. Entre los homónimos —que en Argentina son muchos: hay una Belgrano por
+ *     provincia— gana el que coincide en provincia con OSM.
+ *  3. Si sigue habiendo empate, no se propone nada. Con los desplegables ya
+ *     poblados el usuario elige, que es mejor que acertar una de dos.
+ *
+ * La comparación ignora mayúsculas y acentos: OSM escribe "Ramos Mejía" y el
+ * catálogo "RAMOS MEJIA", y son el mismo lugar.
+ */
+internal fun List<LocalityFullDto>.bestMatch(
+    localityName: String,
+    provinceName: String?,
+): LocalityFullDto? {
+    val exact = filter { it.name.foldForMatch() == localityName.foldForMatch() }
+    if (exact.size == 1) return exact.single()
+    if (exact.isEmpty()) return null
+
+    val province = provinceName?.foldForMatch() ?: return null
+    val inProvince = exact.filter { it.adminLevel1?.name?.foldForMatch() == province }
+
+    return inProvince.singleOrNull()
+}
+
+/** Normaliza para comparar: sin acentos, sin mayúsculas, sin espacios de más. */
+private fun String.foldForMatch(): String =
+    Normalizer.normalize(trim(), Normalizer.Form.NFD)
+        .replace(Regex("\\p{Mn}+"), "")
+        .lowercase()
 
 /** Tipos de vía que entiende el backend, con su etiqueta para la UI. */
 enum class StreetType(val apiValue: String, val label: String) {
@@ -81,6 +120,14 @@ data class ReportTheftUiState(
     val geocoding: Boolean = false,
     val resolvedAddress: ResolvedAddress? = null,
     val geocodingError: String? = null,
+    /**
+     * La localidad del catálogo que corresponde al punto, propuesta junto con la
+     * dirección y aplicada sólo si el usuario confirma.
+     *
+     * Es `null` cuando la búsqueda no encontró nada o encontró algo que no
+     * convence: entonces se propone la calle sola, como antes.
+     */
+    val resolvedLocality: LocalityFullDto? = null,
 
     // Dirección
     val streetType: StreetType? = null,
@@ -121,6 +168,19 @@ data class ReportTheftUiState(
      */
     val hasLocation: Boolean
         get() = localityId != null || (latitude != null && longitude != null)
+
+    /**
+     * El punto alcanza para denunciar, pero no para el cartel público.
+     *
+     * El PDF público omite la calle a propósito —es dato sensible— y muestra
+     * sólo provincia, partido y localidad, los tres derivados de `localityId`.
+     * Sin localidad, entonces, el cartel que se reparte sale **sin ninguna
+     * ubicación**, mientras el PDF privado se ve completo y no delata el
+     * problema. Por eso el aviso es persistente y no un error de validación: la
+     * denuncia es válida, lo que queda inservible es el cartel.
+     */
+    val publicReportWithoutArea: Boolean
+        get() = localityId == null && latitude != null && longitude != null
 }
 
 /**
@@ -429,8 +489,9 @@ class ReportTheftViewModel @Inject constructor(
 
         viewModelScope.launch {
             when (val result = geocodingRepository.reverse(lat, lng)) {
-                is ApiResult.Success -> _state.update {
-                    it.copy(geocoding = false, resolvedAddress = result.data)
+                is ApiResult.Success -> {
+                    _state.update { it.copy(geocoding = false, resolvedAddress = result.data) }
+                    matchLocality(result.data)
                 }
 
                 else -> _state.update {
@@ -447,6 +508,33 @@ class ReportTheftViewModel @Inject constructor(
     }
 
     /**
+     * Traduce el nombre de localidad de OSM al `localityId` del catálogo.
+     *
+     * Es la pieza que faltaba para que el punto del mapa sirva de algo en el PDF
+     * público: ese reporte no muestra la calle —es dato sensible y el backend lo
+     * omite a propósito—, así que sin `localityId` sale literalmente sin
+     * ubicación. Marcar el punto en el mapa producía exactamente eso.
+     *
+     * El match no se aplica solo: alimenta la misma tarjeta de confirmación que
+     * ya usaba la calle. La preocupación de no adivinar sigue en pie; lo que
+     * cambia es que ahora hay a quién preguntarle.
+     */
+    private suspend fun matchLocality(address: ResolvedAddress) {
+        val name = address.locality ?: return
+        val countryId = _state.value.countryId
+
+        val results = when (val r = geoRepository.searchLocalities(name, countryId)) {
+            is ApiResult.Success -> r.data
+            // Silencioso a propósito: la calle ya se propuso y esto es una
+            // mejora encima. Un cartel de error acá haría ruido sobre algo que
+            // el usuario todavía puede resolver con los desplegables.
+            else -> return
+        }
+
+        _state.update { it.copy(resolvedLocality = results.bestMatch(name, address.province)) }
+    }
+
+    /**
      * Confirma la dirección propuesta y la copia a los campos.
      *
      * Las coordenadas y la dirección son cosas distintas: el punto ya viaja
@@ -455,6 +543,8 @@ class ReportTheftViewModel @Inject constructor(
      */
     fun applyResolvedAddress() {
         val address = _state.value.resolvedAddress ?: return
+        val locality = _state.value.resolvedLocality
+
         _state.update {
             it.copy(
                 streetType = StreetType.entries.firstOrNull { t -> t.apiValue == address.streetType }
@@ -462,11 +552,52 @@ class ReportTheftViewModel @Inject constructor(
                 streetName = address.streetName ?: it.streetName,
                 streetNumber = address.streetNumber ?: it.streetNumber,
                 resolvedAddress = null,
+                resolvedLocality = null,
             )
+        }
+
+        locality?.let { applyMatchedLocality(it) }
+    }
+
+    /**
+     * Deja la cascada entera coherente con la localidad que se acaba de aceptar.
+     *
+     * No alcanza con escribir `localityId`: los desplegables se llenan por
+     * nivel, así que sin cargar los de arriba el usuario vería la localidad
+     * elegida sobre una provincia en blanco, y tocar cualquiera de los otros
+     * niveles la borraría. El resultado de la búsqueda ya trae la jerarquía, así
+     * que las dos requests son sólo para poblar las listas.
+     */
+    private fun applyMatchedLocality(locality: LocalityFullDto) {
+        val provinceId = locality.adminLevel1?.id
+        val departmentId = locality.adminLevel2?.id
+
+        _state.update {
+            it.copy(
+                provinceId = provinceId ?: it.provinceId,
+                departmentId = departmentId ?: it.departmentId,
+                localityId = locality.id,
+                fieldErrors = it.fieldErrors - "ubicacion",
+                formError = null,
+            )
+        }
+
+        viewModelScope.launch {
+            if (provinceId != null) {
+                (geoRepository.departments(provinceId) as? ApiResult.Success)?.let { r ->
+                    _state.update { it.copy(departments = r.data) }
+                }
+            }
+            if (departmentId != null) {
+                (geoRepository.localities(departmentId) as? ApiResult.Success)?.let { r ->
+                    _state.update { it.copy(localities = r.data) }
+                }
+            }
         }
     }
 
-    fun discardResolvedAddress() = _state.update { it.copy(resolvedAddress = null) }
+    fun discardResolvedAddress() =
+        _state.update { it.copy(resolvedAddress = null, resolvedLocality = null) }
 
     // ── Campos ───────────────────────────────────────────────────────────────
 

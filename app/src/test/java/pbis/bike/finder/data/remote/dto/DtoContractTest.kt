@@ -306,6 +306,89 @@ class DtoContractTest {
         assertTrue(!serializado.contains("phoneNumber"))
     }
 
+    /**
+     * Regresión: el wrapper de localidades nombra la lista `localities`, no
+     * `items` como los otros dos niveles.
+     *
+     * Leerlo como `items` no fallaba —el default deja la lista vacía— así que el
+     * desplegable de localidad quedaba siempre vacío, sin error visible. Como el
+     * punto del mapa alcanza para enviar, la denuncia viajaba sin `localityId` y
+     * el PDF público salía sin ubicación: es el único campo que ese PDF puede
+     * mostrar.
+     *
+     * El test del ViewModel no lo agarraba porque arma el DTO en Kotlin y nunca
+     * pasa por el JSON.
+     */
+    @Test
+    fun `la lista de localidades viene en localities y no en items`() {
+        val payload = """
+            {
+              "localities": [
+                {
+                  "id": 9,
+                  "adminLevel2Id": 3,
+                  "name": "Ramos Mejia",
+                  "type": "CIUDAD",
+                  "postalCode": "1704",
+                  "latitude": -34.64,
+                  "longitude": -58.56
+                }
+              ],
+              "total": 1,
+              "adminLevel2Id": 3
+            }
+        """.trimIndent()
+
+        val res = json.decodeFromString<LocalityListResponseDto>(payload)
+
+        assertEquals(1, res.localities.size)
+        assertEquals("Ramos Mejia", res.localities.first().name)
+        assertEquals(-34.64, res.localities.first().latitude!!, 0.001)
+    }
+
+    @Test
+    fun `los niveles 1 y 2 siguen viniendo en items`() {
+        val level1 = json.decodeFromString<AdminLevel1ListResponseDto>(
+            """{"items":[{"id":1,"name":"Buenos Aires","type":"Provincia"}],"total":1,"countryId":1}""",
+        )
+        val level2 = json.decodeFromString<AdminLevel2ListResponseDto>(
+            """{"items":[{"id":3,"adminLevel1Id":1,"name":"La Matanza","type":"Partido"}],"total":1}""",
+        )
+
+        assertEquals("Buenos Aires", level1.items.single().name)
+        assertEquals("La Matanza", level2.items.single().name)
+    }
+
+    /** La búsqueda trae la jerarquía desnormalizada: es lo que resuelve el `localityId`. */
+    @Test
+    fun `la busqueda de localidades trae provincia y partido en cada resultado`() {
+        val payload = """
+            {
+              "results": [
+                {
+                  "id": 9,
+                  "name": "Ramos Mejia",
+                  "latitude": -34.64,
+                  "longitude": -58.56,
+                  "fullName": "Ramos Mejia, Buenos Aires, Argentina",
+                  "adminLevel2": {"id": 3, "name": "La Matanza", "type": "Partido"},
+                  "adminLevel1": {"id": 1, "name": "Buenos Aires", "type": "Provincia"},
+                  "country": {"id": 1, "name": "Argentina", "isoCode": "AR"}
+                }
+              ],
+              "total": 1,
+              "query": "Ramos Mejia"
+            }
+        """.trimIndent()
+
+        val res = json.decodeFromString<LocalitySearchResponseDto>(payload)
+
+        assertEquals(1, res.adminLevel1Id())
+        assertEquals(3, res.results.single().adminLevel2?.id)
+    }
+
+    private fun LocalitySearchResponseDto.adminLevel1Id() = results.single().adminLevel1?.id
+
     @Test
     fun `el telefono se valida contra el mismo regex que el backend`() {
         assertTrue(E164_REGEX.matches("+5491122334455"))

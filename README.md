@@ -85,7 +85,7 @@ Para apuntar a otro backend sin recompilar está el override en runtime de
 ./gradlew test
 ```
 
-Son 77, en tres grupos:
+Son 95, en tres grupos:
 
 - **Contrato de DTOs** — que los modelos Kotlin coincidan con los `record` de Java.
 - **Lógica** — renovación de sesión, traducción de errores, cascada del wizard.
@@ -141,6 +141,15 @@ Decisiones que no se ven leyendo el código:
   backend. Enviar y que el servidor rechace no es equivalente: el reporte se persiste
   antes de los pasos best-effort, así que un error tardío convive con una denuncia ya
   creada y el reintento devuelve "ya existe un reporte activo".
+- **El punto del mapa propone la localidad, no la da por buena.** El PDF público omite la
+  calle a propósito —es dato sensible, ver `OpenPdfGenerator.java:515`— y muestra sólo
+  provincia, partido y localidad, los tres derivados de `localityId`. Un reporte hecho
+  marcando el mapa salía entonces sin ninguna ubicación pública, mientras el privado se
+  veía completo y no delataba nada. Ahora el nombre que devuelve OSM se busca en
+  `/localities/search` y la localidad encontrada se propone junto con la calle, para que
+  el usuario confirme. Sólo se propone con nombre **idéntico**: el backend busca por
+  substring, y proponer "Villa Morón" para "Morón" es peor que no proponer nada. Entre
+  homónimos desempata la provincia de OSM; si sigue habiendo empate no se propone.
 - **El punto de la denuncia va como `APPROXIMATE`, no `EXACT`.** `EXACT` es de las pistas,
   donde el informante marca dónde vio la bici. Acá el punto sale del teléfono de quien
   denuncia, que no necesariamente estaba ahí cuando se la robaron.
@@ -170,8 +179,16 @@ usuario autorizaría analizar un dato que el sistema ya borró.
    con Keystore es trabajo real. Quedan excluidos del backup, que es el mínimo. Antes de
    producción: cifrar, o acortar la vida del refresh token para que robarlo valga poco.
 2. **OAuth social sin resolver** — el ítem de mayor fricción.
-3. **Credenciales de prueba en el código** (`BackendIntegrationTest`). Sólo sirven contra
+3. **Falta el paso de cobro previo a la denuncia.** En el front web, "Reportar robo" no
+   abre el formulario: manda a `suscripcion.html?bikeId=…` (`dashboard.js:227` y
+   `ver-bici.js:380`), donde se elige un plan de búsqueda —9.99 / 18.99 / 26.99 USD— y se
+   paga con `POST /api/v1/payments`; recién con el `201` salta a
+   `reportar-robo.html?bikeId=…&plan=…`. La app entra directo al formulario y saltea el
+   cobro. Portarlo implica pantalla de planes, datos de tarjeta y replicar el manejo de
+   `X-Idempotency-Key` de `suscripcion.js`: la clave se conserva en un 503 —que no prueba
+   que el cobro no haya ocurrido— y se descarta en un 201 o un 422.
+4. **Credenciales de prueba en el código** (`BackendIntegrationTest`). Sólo sirven contra
    un backend local, pero conviene sacarlas a variables de entorno.
-4. **Fechas inconsistentes en el backend**: `media-service` serializa `LocalDateTime` como
+5. **Fechas inconsistentes en el backend**: `media-service` serializa `LocalDateTime` como
    array JSON y el resto como ISO. El cliente tolera ambas, pero el arreglo de fondo es
    del servidor.
