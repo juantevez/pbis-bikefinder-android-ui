@@ -229,7 +229,7 @@ private fun EmptyState(modifier: Modifier = Modifier) {
             textAlign = TextAlign.Center,
         )
         Text(
-            text = "El alta de bicicletas llega en la próxima fase.",
+            text = "Usá el botón de abajo para registrar la primera.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,

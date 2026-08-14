@@ -11,6 +11,7 @@ import pbis.bike.finder.data.remote.SessionEvent
 import pbis.bike.finder.data.remote.SessionManager
 import pbis.bike.finder.ui.addbike.AddBikeScreen
 import pbis.bike.finder.ui.bikes.BikesScreen
+import pbis.bike.finder.ui.dashboard.DashboardScreen
 import pbis.bike.finder.ui.login.LoginScreen
 
 /**
@@ -97,7 +98,7 @@ fun BikeFinderNavHost(
         composable<Route.Landing> {
             LoginScreen(
                 onLoggedIn = {
-                    navController.navigate(Route.MyBikes) {
+                    navController.navigate(Route.Dashboard) {
                         // Se saca el login del back stack: volver atrás después de
                         // entrar tiene que salir de la app, no mostrar de nuevo el
                         // formulario de una sesión que ya está abierta.
@@ -106,7 +107,17 @@ fun BikeFinderNavHost(
                 },
             )
         }
-        composable<Route.Dashboard> { PlaceholderScreen("Dashboard") }
+        composable<Route.Dashboard> {
+            DashboardScreen(
+                onAddBike = { navController.navigate(Route.AddBike) },
+                onMyBikes = { navController.navigate(Route.MyBikes) },
+                onUpdateComponents = { navController.navigate(Route.UpdateComponents(it)) },
+                // El robo entra por el plan de búsqueda, no por la denuncia: es
+                // el orden del front web, y el plan define el alcance de la
+                // búsqueda que la denuncia va a publicar.
+                onReportTheft = { navController.navigate(Route.Subscription(it)) },
+            )
+        }
         composable<Route.MyBikes> {
             BikesScreen(
                 onBikeClick = { navController.navigate(Route.BikeDetail(it)) },
@@ -116,12 +127,16 @@ fun BikeFinderNavHost(
         composable<Route.BikeDetail> { PlaceholderScreen("Detalle de bicicleta") }
         composable<Route.AddBike> {
             AddBikeScreen(
-                // Se vuelve al listado sacando el alta del back stack: después de
-                // registrar, "atrás" tiene que llevar a la lista, no al formulario
-                // de una bici que ya se creó.
-                onCreated = {
-                    navController.popBackStack(Route.MyBikes, inclusive = false)
-                },
+                // Se vuelve a quien abrió el alta —el listado o el dashboard—
+                // sacando el formulario del back stack: después de registrar,
+                // "atrás" no puede volver al alta de una bici que ya se creó.
+                //
+                // Antes esto era `popBackStack(Route.MyBikes, ...)`, y desde que
+                // el alta también se abre desde el dashboard eso dejaba de
+                // funcionar sin avisar: si `MyBikes` no está en el back stack,
+                // `popBackStack` con destino devuelve false y no hace nada — el
+                // usuario se quedaba mirando el formulario recién enviado.
+                onCreated = { navController.popBackStack() },
                 onBack = { navController.popBackStack() },
             )
         }

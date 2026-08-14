@@ -6,12 +6,13 @@ Jetpack Compose, contra el mismo backend.
 
 ## Estado
 
-**En construcción.** Funciona el camino de login → listado → alta de bicicleta con fotos.
-El resto de las pantallas son marcadores de posición.
+**En construcción.** Funciona el camino de login → dashboard → listado → alta de bicicleta
+con fotos. El resto de las pantallas son marcadores de posición.
 
 | Pantalla | Estado |
 |---|---|
 | Login (email + contraseña) | ✅ |
+| Dashboard (resumen + grilla de acciones) | ✅ |
 | Mis bicicletas (listado) | ✅ |
 | Registrar bicicleta (catálogo y manual, con fotos) | ✅ |
 | Detalle de bicicleta | ⬜ placeholder |
@@ -83,7 +84,7 @@ Para apuntar a otro backend sin recompilar está el override en runtime de
 ./gradlew test
 ```
 
-Son 59, en tres grupos:
+Son 64, en tres grupos:
 
 - **Contrato de DTOs** — que los modelos Kotlin coincidan con los `record` de Java.
 - **Lógica** — renovación de sesión, traducción de errores, cascada del wizard.
@@ -124,6 +125,10 @@ Decisiones que no se ven leyendo el código:
 - **`X-Idempotency-Key` va como parámetro explícito**, no la pone un interceptor: tiene
   que ser la misma en todos los reintentos de un pago.
 - **Sin dynamic color**: la paleta crema/dorada es identidad de marca.
+- **La grilla del dashboard no depende del resumen.** Si `dashboard-aggregator` falla, los
+  números muestran el error y las tarjetas siguen navegando. En el front web esa misma
+  respuesta alimentaba también los selectores de bici, así que un fallo dejaba media
+  pantalla muerta.
 
 El mapa completo de endpoints, modelos y decisiones de mapeo está en
 [`docs/API-MAP.md`](docs/API-MAP.md).
