@@ -36,3 +36,7 @@ signing.properties
 *.hprof
 *.log
 .DS_Store
+
+# Archivos locales de Claude Code (incluidos los temporales que deja al escribir)
+.claude/settings.local.json
+.claude/settings.local.json.tmp.*
