@@ -14,6 +14,7 @@ import pbis.bike.finder.ui.addbike.AddBikeScreen
 import pbis.bike.finder.ui.bikes.BikesScreen
 import pbis.bike.finder.ui.dashboard.DashboardScreen
 import pbis.bike.finder.ui.login.LoginScreen
+import pbis.bike.finder.ui.reports.MyReportsScreen
 import pbis.bike.finder.ui.reporttheft.ReportTheftScreen
 import pbis.bike.finder.ui.subscription.SubscriptionScreen
 
@@ -52,6 +53,10 @@ sealed interface Route {
 
     @Serializable
     data class ReportTheft(val bikeId: String, val plan: String? = null) : Route
+
+    /** Las denuncias ya hechas: sus dos PDF y sus pistas. */
+    @Serializable
+    data object MyReports : Route
 
     @Serializable
     data class TipsList(val reportId: String) : Route
@@ -120,6 +125,7 @@ fun BikeFinderNavHost(
                 // `dashboard.js` manda a `suscripcion.html` y nunca al
                 // formulario.
                 onReportTheft = { navController.navigate(Route.Subscription(it)) },
+                onMyReports = { navController.navigate(Route.MyReports) },
             )
         }
         composable<Route.MyBikes> {
@@ -169,6 +175,12 @@ fun BikeFinderNavHost(
                 // terminar. Volver atrás sobre un formulario ya enviado sólo
                 // puede llevar a intentar denunciar dos veces la misma bici.
                 onReported = { navController.popBackStack() },
+                onBack = { navController.popBackStack() },
+            )
+        }
+        composable<Route.MyReports> {
+            MyReportsScreen(
+                onViewTips = { navController.navigate(Route.TipsList(it)) },
                 onBack = { navController.popBackStack() },
             )
         }

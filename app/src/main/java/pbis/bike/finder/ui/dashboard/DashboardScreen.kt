@@ -55,6 +55,7 @@ fun DashboardScreen(
     onMyBikes: () -> Unit,
     onUpdateComponents: (String) -> Unit,
     onReportTheft: (String) -> Unit,
+    onMyReports: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: DashboardViewModel = hiltViewModel(),
 ) {
@@ -153,11 +154,9 @@ fun DashboardScreen(
             item {
                 ActionCard(
                     number = "05",
-                    title = "Pistas recibidas",
-                    subtitle = "Avistamientos de la comunidad y denuncia en PDF",
-                    // Sin pantalla de denuncias todavía no hay de dónde sacar el
-                    // reporte al que pertenecen las pistas.
-                    enabled = false,
+                    title = "Mis denuncias",
+                    subtitle = "Los PDF de cada denuncia y las pistas recibidas",
+                    onClick = onMyReports,
                 )
             }
             item {

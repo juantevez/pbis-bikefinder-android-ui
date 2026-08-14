@@ -17,8 +17,9 @@ con fotos. El resto de las pantallas son marcadores de posición.
 | Registrar bicicleta (catálogo y manual, con fotos) | ✅ |
 | Plan de búsqueda (pago) | ✅ |
 | Denunciar robo | ✅ |
+| Mis denuncias (PDF privado y público, pistas) | ✅ |
 | Detalle de bicicleta | ⬜ placeholder |
-| Componentes, pistas, perfil | ⬜ placeholder |
+| Componentes, detalle de pista, perfil | ⬜ placeholder |
 | Registro de cuenta y login con Google | ⬜ sin implementar |
 | Panel de administración | ❌ fuera de alcance — sigue siendo web |
 
@@ -86,7 +87,7 @@ Para apuntar a otro backend sin recompilar está el override en runtime de
 ./gradlew test
 ```
 
-Son 104, en tres grupos:
+Son 127, en tres grupos:
 
 - **Contrato de DTOs** — que los modelos Kotlin coincidan con los `record` de Java.
 - **Lógica** — renovación de sesión, traducción de errores, cascada del wizard.
@@ -152,6 +153,12 @@ Decisiones que no se ven leyendo el código:
   backend. Enviar y que el servidor rechace no es equivalente: el reporte se persiste
   antes de los pasos best-effort, así que un error tardío convive con una denuncia ya
   creada y el reintento devuelve "ya existe un reporte activo".
+- **Los dos PDF viven juntos y se explican.** El privado lleva calle, hora, descripción y
+  contacto —es el que va a la policía—; el público omite todo eso y sólo muestra la zona.
+  Son documentos distintos, no dos formatos del mismo, así que la pantalla dice cuál es
+  cuál: elegir qué se comparte es una decisión del usuario. El público va **sin**
+  `Authorization`, igual que en `dashboard.js`: el endpoint es público y sugerir que hace
+  falta sesión para algo pensado para pasar de mano en mano está mal.
 - **El punto del mapa propone la localidad, no la da por buena.** El PDF público omite la
   calle a propósito —es dato sensible, ver `OpenPdfGenerator.java:515`— y muestra sólo
   provincia, partido y localidad, los tres derivados de `localityId`. Un reporte hecho

@@ -40,6 +40,19 @@ interface TheftReportApi {
     @GET("api/v1/theft-reports/{reportId}/pdf/generate")
     suspend fun generatePdf(@Path("reportId") reportId: String): PdfGeneratedDto
 
+    /**
+     * El cartel de "¿viste esta bicicleta?", con el QR para reportar pistas.
+     *
+     * Va **sin `Authorization` a propósito**: es la vista que se comparte, y el
+     * endpoint es público del lado del servidor. Mandar el token no lo rompería,
+     * pero dejaría creer que hace falta una sesión para algo cuyo sentido es
+     * pasar de mano en mano.
+     *
+     * Es también el PDF que sólo puede mostrar provincia, partido y localidad
+     * —la calle la omite por ser dato sensible—, así que es el que se queda sin
+     * ubicación si la denuncia viajó sin `localityId`.
+     */
+    @Headers("$HEADER_SKIP_AUTH: true")
     @GET("api/v1/stolen-bikes/{reportId}/pdf/generate")
     suspend fun generatePublicPdf(@Path("reportId") reportId: String): PdfGeneratedDto
 

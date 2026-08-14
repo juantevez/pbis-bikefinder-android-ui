@@ -45,4 +45,29 @@ class TheftRepository @Inject constructor(
      */
     suspend fun generatePdf(reportId: String): ApiResult<PdfGeneratedDto> =
         apiCall(json) { theftApi.generatePdf(reportId) }
+
+    /**
+     * El cartel público, con el QR para que un tercero reporte una pista.
+     *
+     * Son **dos documentos distintos**, no dos formatos del mismo: el privado
+     * lleva la calle, la hora, la descripción y el contacto —es el que va a la
+     * policía o al seguro—; el público omite todo eso y sólo muestra la zona.
+     * Por eso los dos aparecen juntos en la pantalla: elegir cuál compartir es
+     * una decisión del usuario y tiene que ser visible.
+     */
+    suspend fun generatePublicPdf(reportId: String): ApiResult<PdfGeneratedDto> =
+        apiCall(json) { theftApi.generatePublicPdf(reportId) }
+
+    /** Las denuncias del usuario, para la pantalla de reportes y pistas. */
+    suspend fun myReports(): ApiResult<List<TheftReportDto>> =
+        apiCall(json) { theftApi.myReports().reports }
+
+    /**
+     * Cuántas pistas sin leer tiene cada denuncia.
+     *
+     * Una sola request para todos los badges: el backend devuelve **sólo** las
+     * denuncias con pistas nuevas, así que las ausentes valen cero.
+     */
+    suspend fun unreadTipCounts(): ApiResult<Map<String, Int>> =
+        apiCall(json) { theftApi.unreadTipsCount().porReporte }
 }
