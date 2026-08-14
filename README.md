@@ -15,8 +15,9 @@ con fotos. El resto de las pantallas son marcadores de posición.
 | Dashboard (resumen + grilla de acciones) | ✅ |
 | Mis bicicletas (listado) | ✅ |
 | Registrar bicicleta (catálogo y manual, con fotos) | ✅ |
+| Denunciar robo | ✅ |
 | Detalle de bicicleta | ⬜ placeholder |
-| Componentes, denuncia, plan de búsqueda, pistas, perfil | ⬜ placeholder |
+| Componentes, plan de búsqueda, pistas, perfil | ⬜ placeholder |
 | Registro de cuenta y login con Google | ⬜ sin implementar |
 | Panel de administración | ❌ fuera de alcance — sigue siendo web |
 
@@ -84,7 +85,7 @@ Para apuntar a otro backend sin recompilar está el override en runtime de
 ./gradlew test
 ```
 
-Son 64, en tres grupos:
+Son 77, en tres grupos:
 
 - **Contrato de DTOs** — que los modelos Kotlin coincidan con los `record` de Java.
 - **Lógica** — renovación de sesión, traducción de errores, cascada del wizard.
@@ -125,6 +126,16 @@ Decisiones que no se ven leyendo el código:
 - **`X-Idempotency-Key` va como parámetro explícito**, no la pone un interceptor: tiene
   que ser la misma en todos los reintentos de un pago.
 - **Sin dynamic color**: la paleta crema/dorada es identidad de marca.
+- **La denuncia no se manda sin ubicación, y se valida en el cliente.** Alcanza con la
+  localidad o con el punto del GPS; la calle sola no cuenta, porque tampoco cuenta para el
+  backend. Enviar y que el servidor rechace no es equivalente: el reporte se persiste
+  antes de los pasos best-effort, así que un error tardío convive con una denuncia ya
+  creada y el reintento devuelve "ya existe un reporte activo".
+- **El punto de la denuncia va como `APPROXIMATE`, no `EXACT`.** `EXACT` es de las pistas,
+  donde el informante marca dónde vio la bici. Acá el punto sale del teléfono de quien
+  denuncia, que no necesariamente estaba ahí cuando se la robaron.
+- **La ubicación se toma con `LocationManager`, sin Google Play Services.** Un botón no
+  justifica arrastrar esa dependencia, que además no está en todos los teléfonos.
 - **La grilla del dashboard no depende del resumen.** Si `dashboard-aggregator` falla, los
   números muestran el error y las tarjetas siguen navegando. En el front web esa misma
   respuesta alimentaba también los selectores de bici, así que un fallo dejaba media

@@ -1,0 +1,404 @@
+package pbis.bike.finder.ui.reporttheft
+
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
+import kotlinx.datetime.LocalDate
+import kotlinx.serialization.json.Json
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.ResponseBody.Companion.toResponseBody
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+import pbis.bike.finder.data.local.DevicePoint
+import pbis.bike.finder.data.local.DeviceLocationProvider
+import pbis.bike.finder.data.local.TokenStorage
+import pbis.bike.finder.data.remote.SessionManager
+import pbis.bike.finder.data.remote.api.AuthApi
+import pbis.bike.finder.data.remote.api.BicycleApi
+import pbis.bike.finder.data.remote.api.GeoApi
+import pbis.bike.finder.data.remote.api.TheftReportApi
+import pbis.bike.finder.data.remote.dto.AdminLevel1ListResponseDto
+import pbis.bike.finder.data.remote.dto.AdminLevel2ListResponseDto
+import pbis.bike.finder.data.remote.dto.AuthResponseDto
+import pbis.bike.finder.data.remote.dto.BicycleDto
+import pbis.bike.finder.data.remote.dto.ConfirmPasswordResetDto
+import pbis.bike.finder.data.remote.dto.CountryListResponseDto
+import pbis.bike.finder.data.remote.dto.LocalityListResponseDto
+import pbis.bike.finder.data.remote.dto.LoginRequestDto
+import pbis.bike.finder.data.remote.dto.LogoutRequestDto
+import pbis.bike.finder.data.remote.dto.PdfGeneratedDto
+import pbis.bike.finder.data.remote.dto.RefreshTokenRequestDto
+import pbis.bike.finder.data.remote.dto.RegisterRequestDto
+import pbis.bike.finder.data.remote.dto.ReportTheftRequestDto
+import pbis.bike.finder.data.remote.dto.RequestPasswordResetDto
+import pbis.bike.finder.data.remote.dto.ResendVerificationDto
+import pbis.bike.finder.data.remote.dto.TheftReportDto
+import pbis.bike.finder.data.remote.dto.UpdateProfileRequestDto
+import pbis.bike.finder.data.remote.dto.UserInfoDto
+import pbis.bike.finder.data.remote.dto.VerifyEmailDto
+import pbis.bike.finder.data.repository.AuthRepository
+import pbis.bike.finder.data.repository.BicycleRepository
+import pbis.bike.finder.data.repository.GeoRepository
+import pbis.bike.finder.data.repository.TheftRepository
+import pbis.bike.finder.testing.StubBicycleApi
+import pbis.bike.finder.testing.StubTheftReportApi
+import retrofit2.HttpException
+import retrofit2.Response
+import javax.inject.Provider
+
+/**
+ * La denuncia es la pantalla donde equivocarse cuesta más caro: el backend
+ * persiste el reporte antes de los pasos best-effort, así que una denuncia mal
+ * armada no se arregla reintentando —devuelve "ya existe un reporte activo"—.
+ *
+ * Por eso estos tests miran sobre todo **qué se manda** y **qué se rechaza antes
+ * de mandarlo**.
+ */
+@OptIn(ExperimentalCoroutinesApi::class)
+class ReportTheftViewModelTest {
+
+    private val dispatcher = StandardTestDispatcher()
+
+    @Before
+    fun setUp() = Dispatchers.setMain(dispatcher)
+
+    @After
+    fun tearDown() = Dispatchers.resetMain()
+
+    // ── Dobles ───────────────────────────────────────────────────────────────
+
+    private class FakeBicycleApi : StubBicycleApi() {
+        var lastReport: ReportTheftRequestDto? = null
+        var reportResponse: () -> TheftReportDto = { TheftReportDto(id = "reporte-1") }
+
+        override suspend fun detail(id: String) = BicycleDto(id = id)
+
+        override suspend fun reportTheft(id: String, body: ReportTheftRequestDto): TheftReportDto {
+            lastReport = body
+            return reportResponse()
+        }
+    }
+
+    private class FakeGeoApi : GeoApi {
+        override suspend fun countries() = CountryListResponseDto()
+        override suspend fun provinces(countryId: Int) = AdminLevel1ListResponseDto()
+        override suspend fun departments(provinceId: Int) = AdminLevel2ListResponseDto()
+        override suspend fun localities(departmentId: Int) = LocalityListResponseDto()
+    }
+
+    private class FakeTheftApi(
+        var pdf: () -> PdfGeneratedDto = { PdfGeneratedDto(presignedUrl = "https://s3/pdf") },
+    ) : StubTheftReportApi() {
+        override suspend fun generatePdf(reportId: String) = pdf()
+    }
+
+    private class FakeLocationProvider(var point: DevicePoint?) : DeviceLocationProvider {
+        override suspend fun currentPoint() = point
+    }
+
+    private class FakeTokenStore : TokenStorage {
+        override val hasSession: Flow<Boolean> get() = flowOf(true)
+        override suspend fun accessToken() = "access"
+        override suspend fun refreshToken() = "refresh"
+        override suspend fun save(accessToken: String, refreshToken: String) = Unit
+        override suspend fun clear() = Unit
+    }
+
+    private class FakeAuthApi : AuthApi {
+        override suspend fun me() = UserInfoDto(
+            id = "u-1",
+            email = "juan@example.com",
+            phoneNumber = "1122334455",
+        )
+
+        override suspend fun login(body: LoginRequestDto) = notUsed()
+        override suspend fun register(body: RegisterRequestDto) = notUsed()
+        override suspend fun refresh(body: RefreshTokenRequestDto): Response<AuthResponseDto> =
+            notUsed()
+
+        override suspend fun logout(body: LogoutRequestDto) = notUsed()
+        override suspend fun updateProfile(body: UpdateProfileRequestDto): UserInfoDto = notUsed()
+        override suspend fun verifyEmail(body: VerifyEmailDto) = notUsed()
+        override suspend fun resendVerification(body: ResendVerificationDto) = notUsed()
+        override suspend fun requestPasswordReset(body: RequestPasswordResetDto) = notUsed()
+        override suspend fun confirmPasswordReset(body: ConfirmPasswordResetDto) = notUsed()
+
+        private fun notUsed(): Nothing = throw UnsupportedOperationException()
+    }
+
+    private val json = Json { ignoreUnknownKeys = true }
+
+    private fun viewModel(
+        bicycleApi: FakeBicycleApi = FakeBicycleApi(),
+        theftApi: FakeTheftApi = FakeTheftApi(),
+        location: DevicePoint? = null,
+    ): ReportTheftViewModel {
+        val authApi = FakeAuthApi()
+        val store = FakeTokenStore()
+        return ReportTheftViewModel(
+            theftRepository = TheftRepository(bicycleApi, theftApi, json),
+            bicycleRepository = BicycleRepository(bicycleApi, json),
+            geoRepository = GeoRepository(FakeGeoApi(), json),
+            authRepository = AuthRepository(
+                api = authApi,
+                tokenStore = store,
+                sessionManager = SessionManager(store, Provider { authApi }),
+                json = json,
+            ),
+            locationProvider = FakeLocationProvider(location),
+        )
+    }
+
+    private fun httpError(code: Int) = HttpException(
+        Response.error<Unit>(code, "{}".toResponseBody("application/json".toMediaType())),
+    )
+
+    // ── Ubicación obligatoria ────────────────────────────────────────────────
+
+    @Test
+    fun `sin ubicacion no se envia nada`() = runTest {
+        val api = FakeBicycleApi()
+        val sut = viewModel(api)
+        sut.start("bici-1")
+        advanceUntilIdle()
+
+        sut.submit()
+        advanceUntilIdle()
+
+        // Lo que importa no es el mensaje: es que la request no salió. Enviarla
+        // y que el backend la rechace sería lo mismo sólo si el rechazo llegara
+        // siempre antes del commit, y esa garantía no la tiene el cliente.
+        assertNull(api.lastReport)
+        assertNotNull(sut.state.value.fieldErrors["ubicacion"])
+    }
+
+    @Test
+    fun `la localidad sola alcanza como ubicacion`() = runTest {
+        val api = FakeBicycleApi()
+        val sut = viewModel(api)
+        sut.start("bici-1")
+        advanceUntilIdle()
+
+        sut.selectLocality(42)
+        sut.submit()
+        advanceUntilIdle()
+
+        assertEquals(42, api.lastReport?.theftLocation?.localityId)
+        assertNull(api.lastReport?.theftLocation?.latitude)
+    }
+
+    @Test
+    fun `el punto del telefono solo tambien alcanza`() = runTest {
+        val api = FakeBicycleApi()
+        val sut = viewModel(api, location = DevicePoint(-34.9214, -57.9544))
+        sut.start("bici-1")
+        advanceUntilIdle()
+
+        sut.useCurrentLocation()
+        advanceUntilIdle()
+        sut.submit()
+        advanceUntilIdle()
+
+        assertEquals(-34.9214, api.lastReport?.theftLocation?.latitude)
+        assertEquals(-57.9544, api.lastReport?.theftLocation?.longitude)
+        // "EXACT" está reservado a las pistas: acá el punto es del teléfono de
+        // quien denuncia, no del lugar donde se vio la bici.
+        assertEquals("APPROXIMATE", api.lastReport?.theftLocation?.precision)
+    }
+
+    @Test
+    fun `una calle sin localidad ni punto no cuenta como ubicacion`() = runTest {
+        // Es el caso que más fácil se cuela: el usuario escribe la calle y cree
+        // que ya dijo dónde fue. El backend lo rechaza igual, así que dejarlo
+        // pasar sólo agrega un viaje perdido.
+        val api = FakeBicycleApi()
+        val sut = viewModel(api)
+        sut.start("bici-1")
+        advanceUntilIdle()
+
+        sut.setStreetName("Av. 7")
+        sut.setStreetNumber("1234")
+        sut.submit()
+        advanceUntilIdle()
+
+        assertNull(api.lastReport)
+        assertNotNull(sut.state.value.fieldErrors["ubicacion"])
+    }
+
+    @Test
+    fun `si falla el GPS el formulario sigue siendo usable`() = runTest {
+        val api = FakeBicycleApi()
+        val sut = viewModel(api, location = null)
+        sut.start("bici-1")
+        advanceUntilIdle()
+
+        sut.useCurrentLocation()
+        advanceUntilIdle()
+
+        assertNotNull(sut.state.value.locationError)
+        assertTrue(!sut.state.value.locating)
+
+        // Y la localidad sigue sirviendo para completar la denuncia.
+        sut.selectLocality(7)
+        sut.submit()
+        advanceUntilIdle()
+        assertEquals(7, api.lastReport?.theftLocation?.localityId)
+    }
+
+    // ── Payload ──────────────────────────────────────────────────────────────
+
+    @Test
+    fun `el contacto se precarga del perfil`() = runTest {
+        val sut = viewModel()
+        sut.start("bici-1")
+        advanceUntilIdle()
+
+        assertEquals("juan@example.com", sut.state.value.contactEmail)
+        assertEquals("1122334455", sut.state.value.contactPhone)
+    }
+
+    @Test
+    fun `los campos vacios viajan como null y no como cadena vacia`() = runTest {
+        val api = FakeBicycleApi()
+        val sut = viewModel(api)
+        sut.start("bici-1")
+        advanceUntilIdle()
+
+        sut.selectLocality(1)
+        sut.setDescription("   ")
+        sut.submit()
+        advanceUntilIdle()
+
+        assertNull(api.lastReport?.theftDescription)
+        assertNull(api.lastReport?.theftTimeApprox)
+    }
+
+    @Test
+    fun `sin recompensa no viaja monto ni moneda`() = runTest {
+        val api = FakeBicycleApi()
+        val sut = viewModel(api)
+        sut.start("bici-1")
+        advanceUntilIdle()
+
+        sut.selectLocality(1)
+        // El usuario la activa, escribe algo y se arrepiente: los valores no
+        // pueden quedar colgados en el payload.
+        sut.setRewardOffered(true)
+        sut.setRewardAmount("5000")
+        sut.setRewardOffered(false)
+        sut.submit()
+        advanceUntilIdle()
+
+        assertEquals(false, api.lastReport?.rewardOffered)
+        assertNull(api.lastReport?.rewardAmount)
+        assertNull(api.lastReport?.rewardCurrency)
+    }
+
+    @Test
+    fun `una recompensa con monto invalido no se envia`() = runTest {
+        val api = FakeBicycleApi()
+        val sut = viewModel(api)
+        sut.start("bici-1")
+        advanceUntilIdle()
+
+        sut.selectLocality(1)
+        sut.setRewardOffered(true)
+        sut.setRewardAmount("mil pesos")
+        sut.submit()
+        advanceUntilIdle()
+
+        assertNull(api.lastReport)
+        assertNotNull(sut.state.value.fieldErrors["recompensa"])
+    }
+
+    @Test
+    fun `no se acepta una fecha futura`() = runTest {
+        val api = FakeBicycleApi()
+        val sut = viewModel(api)
+        sut.start("bici-1")
+        advanceUntilIdle()
+
+        sut.selectLocality(1)
+        sut.setDate(LocalDate(2099, 1, 1))
+        sut.submit()
+        advanceUntilIdle()
+
+        assertNull(api.lastReport)
+        assertNotNull(sut.state.value.fieldErrors["fecha"])
+    }
+
+    // ── Después de crear ─────────────────────────────────────────────────────
+
+    @Test
+    fun `no se puede enviar dos veces la misma denuncia`() = runTest {
+        // Reintentar después del éxito es exactamente lo que produce el
+        // "An active theft report already exists for this bicycle" del backend.
+        val api = FakeBicycleApi()
+        val sut = viewModel(api)
+        sut.start("bici-1")
+        advanceUntilIdle()
+
+        sut.selectLocality(1)
+        sut.submit()
+        advanceUntilIdle()
+        api.lastReport = null
+
+        sut.submit()
+        advanceUntilIdle()
+
+        assertNull(api.lastReport)
+        assertEquals("reporte-1", sut.state.value.createdReportId)
+    }
+
+    @Test
+    fun `si falla el PDF la denuncia sigue creada`() = runTest {
+        val theftApi = FakeTheftApi(pdf = { throw httpError(500) })
+        val sut = viewModel(theftApi = theftApi)
+        sut.start("bici-1")
+        advanceUntilIdle()
+
+        sut.selectLocality(1)
+        sut.submit()
+        advanceUntilIdle()
+
+        sut.downloadPdf()
+        advanceUntilIdle()
+
+        val state = sut.state.value
+        assertEquals("reporte-1", state.createdReportId)
+        assertNotNull(state.pdfError)
+        // El texto tiene que decir que la denuncia quedó hecha: confundir "no
+        // salió el PDF" con "no se denunció" es el peor malentendido posible acá.
+        assertTrue(state.pdfError!!.contains("denuncia ya quedó hecha"))
+        assertNull(state.pdfUrl)
+    }
+
+    @Test
+    fun `un fallo del envio deja el formulario listo para corregir`() = runTest {
+        val api = FakeBicycleApi()
+        api.reportResponse = { throw httpError(500) }
+        val sut = viewModel(api)
+        sut.start("bici-1")
+        advanceUntilIdle()
+
+        sut.selectLocality(1)
+        sut.submit()
+        advanceUntilIdle()
+
+        val state = sut.state.value
+        assertNotNull(state.formError)
+        assertNull(state.createdReportId)
+        assertTrue(!state.submitting)
+    }
+}

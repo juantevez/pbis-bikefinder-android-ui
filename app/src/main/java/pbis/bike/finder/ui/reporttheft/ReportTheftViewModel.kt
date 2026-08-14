@@ -1,0 +1,501 @@
+package pbis.bike.finder.ui.reporttheft
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlinx.datetime.Clock
+import kotlinx.datetime.LocalDate
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.todayIn
+import pbis.bike.finder.data.local.DeviceLocationProvider
+import pbis.bike.finder.data.remote.ApiResult
+import pbis.bike.finder.data.remote.dto.AdminLevel1Dto
+import pbis.bike.finder.data.remote.dto.AdminLevel2Dto
+import pbis.bike.finder.data.remote.dto.CountryDto
+import pbis.bike.finder.data.remote.dto.LocalityDto
+import pbis.bike.finder.data.remote.dto.ReportTheftRequestDto
+import pbis.bike.finder.data.remote.dto.TheftLocationDto
+import pbis.bike.finder.data.repository.BicycleRepository
+import pbis.bike.finder.data.repository.AuthRepository
+import pbis.bike.finder.data.repository.GeoRepository
+import pbis.bike.finder.data.repository.TheftRepository
+import pbis.bike.finder.ui.common.toUserMessage
+import javax.inject.Inject
+
+/** Tipos de vía que entiende el backend, con su etiqueta para la UI. */
+enum class StreetType(val apiValue: String, val label: String) {
+    CALLE("CALLE", "Calle"),
+    AVENIDA("AVENIDA", "Avenida"),
+    BOULEVARD("BOULEVARD", "Boulevard"),
+    DIAGONAL("DIAGONAL", "Diagonal"),
+    PASAJE("PASAJE", "Pasaje"),
+}
+
+data class ReportTheftUiState(
+    val bikeName: String? = null,
+
+    // Detalles
+    val theftDate: LocalDate = Clock.System.todayIn(TimeZone.currentSystemDefault()),
+    val maxDate: LocalDate = Clock.System.todayIn(TimeZone.currentSystemDefault()),
+    val timeApprox: String = "",
+    val description: String = "",
+
+    // Cascada geográfica
+    val countries: List<CountryDto> = emptyList(),
+    val provinces: List<AdminLevel1Dto> = emptyList(),
+    val departments: List<AdminLevel2Dto> = emptyList(),
+    val localities: List<LocalityDto> = emptyList(),
+    val countryId: Int? = null,
+    val provinceId: Int? = null,
+    val departmentId: Int? = null,
+    val localityId: Int? = null,
+    val loadingGeo: Boolean = false,
+
+    // Punto del teléfono
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+    val locating: Boolean = false,
+    val locationError: String? = null,
+
+    // Dirección
+    val streetType: StreetType? = null,
+    val streetName: String = "",
+    val streetNumber: String = "",
+    val reference: String = "",
+
+    // Contacto
+    val contactPhone: String = "",
+    val contactEmail: String = "",
+    val contactPublic: Boolean = false,
+
+    // Recompensa
+    val rewardOffered: Boolean = false,
+    val rewardAmount: String = "",
+    val rewardCurrency: String = "ARS",
+
+    val submitting: Boolean = false,
+    val formError: String? = null,
+    val fieldErrors: Map<String, String> = emptyMap(),
+
+    /** Id de la denuncia creada. Deja de ser null una sola vez. */
+    val createdReportId: String? = null,
+
+    val generatingPdf: Boolean = false,
+    /** URL prefirmada lista para abrir; la pantalla la consume y la limpia. */
+    val pdfUrl: String? = null,
+    val pdfError: String? = null,
+) {
+    /**
+     * La regla de ubicación del backend, replicada tal cual.
+     *
+     * Alcanza con la localidad **o** con el par completo de coordenadas: son dos
+     * formas válidas de decir dónde. País, provincia y departamento no cuentan
+     * —no viajan en el payload— y la referencia libre tampoco. Si este criterio
+     * y el que arma el payload fueran distintos, el formulario dejaría pasar
+     * denuncias que el servidor rechaza.
+     */
+    val hasLocation: Boolean
+        get() = localityId != null || (latitude != null && longitude != null)
+}
+
+/**
+ * La denuncia.
+ *
+ * Es la pantalla más crítica de la app: lo que se carga acá dispara la búsqueda
+ * por imagen, alimenta el mapa público de robos y termina en el PDF que el
+ * usuario lleva a la policía.
+ *
+ * Dos cosas la separan del resto de los formularios:
+ *
+ *  - **La ubicación es obligatoria**, y se valida acá además de en el backend.
+ *  - **El envío no es reintentable a ciegas.** El backend commitea la denuncia
+ *    antes de los pasos best-effort, así que un error después de ese punto puede
+ *    convivir con una denuncia ya creada.
+ */
+@HiltViewModel
+class ReportTheftViewModel @Inject constructor(
+    private val theftRepository: TheftRepository,
+    private val bicycleRepository: BicycleRepository,
+    private val geoRepository: GeoRepository,
+    private val authRepository: AuthRepository,
+    private val locationProvider: DeviceLocationProvider,
+) : ViewModel() {
+
+    private val _state = MutableStateFlow(ReportTheftUiState())
+    val state: StateFlow<ReportTheftUiState> = _state.asStateFlow()
+
+    private var bicycleId: String? = null
+
+    /**
+     * La pantalla pasa el id de la bici una sola vez.
+     *
+     * Va acá y no en el constructor por `SavedStateHandle` para que el ViewModel
+     * se pueda construir en un test sin armar el back stack de navegación.
+     */
+    fun start(bicycleId: String) {
+        if (this.bicycleId != null) return
+        this.bicycleId = bicycleId
+
+        loadBike(bicycleId)
+        loadProfile()
+        loadCountries()
+    }
+
+    private fun loadBike(id: String) {
+        viewModelScope.launch {
+            val result = bicycleRepository.bicycle(id)
+            if (result is ApiResult.Success) {
+                val frame = result.data.frame
+                val name = listOfNotNull(frame?.brandName, frame?.model)
+                    .joinToString(" ")
+                    .ifBlank { null }
+                _state.update { it.copy(bikeName = name) }
+            }
+        }
+    }
+
+    /**
+     * Precarga el contacto con lo que ya sabemos del usuario.
+     *
+     * En el front web, un perfil sin teléfono **ni** mail corta el flujo con un
+     * diálogo. Acá no se corta: el mail es el identificador de la cuenta, así que
+     * esa rama es prácticamente inalcanzable, y los dos campos son editables —si
+     * llegaran vacíos, el usuario los completa a mano y la denuncia sigue.
+     */
+    private fun loadProfile() {
+        viewModelScope.launch {
+            val result = authRepository.profile()
+            if (result is ApiResult.Success) {
+                _state.update {
+                    it.copy(
+                        contactPhone = it.contactPhone.ifBlank { result.data.phoneNumber ?: "" },
+                        contactEmail = it.contactEmail.ifBlank { result.data.email },
+                    )
+                }
+            }
+        }
+    }
+
+    // ── Cascada geográfica ───────────────────────────────────────────────────
+
+    private fun loadCountries() {
+        _state.update { it.copy(loadingGeo = true) }
+
+        viewModelScope.launch {
+            val result = geoRepository.countries()
+            _state.update { it.copy(loadingGeo = false) }
+            if (result is ApiResult.Success) {
+                _state.update { it.copy(countries = result.data) }
+                // Argentina preseleccionada, igual que el front web: es el único
+                // país con datos cargados, y ahorra el primer desplegable.
+                result.data.firstOrNull { it.isoCode2 == "AR" }?.let { selectCountry(it.id) }
+            }
+        }
+    }
+
+    fun selectCountry(countryId: Int?) {
+        // Cada nivel invalida los de abajo. Es el mismo reseteo en cascada del
+        // alta: dejar colgada una localidad de otra provincia manda a la denuncia
+        // una ubicación que no existe.
+        _state.update {
+            it.copy(
+                countryId = countryId,
+                provinceId = null,
+                departmentId = null,
+                localityId = null,
+                provinces = emptyList(),
+                departments = emptyList(),
+                localities = emptyList(),
+            )
+        }
+        countryId ?: return
+
+        viewModelScope.launch {
+            _state.update { it.copy(loadingGeo = true) }
+            val result = geoRepository.provinces(countryId)
+            _state.update {
+                it.copy(
+                    loadingGeo = false,
+                    provinces = (result as? ApiResult.Success)?.data ?: emptyList(),
+                )
+            }
+        }
+    }
+
+    fun selectProvince(provinceId: Int?) {
+        _state.update {
+            it.copy(
+                provinceId = provinceId,
+                departmentId = null,
+                localityId = null,
+                departments = emptyList(),
+                localities = emptyList(),
+            )
+        }
+        provinceId ?: return
+
+        viewModelScope.launch {
+            _state.update { it.copy(loadingGeo = true) }
+            val result = geoRepository.departments(provinceId)
+            _state.update {
+                it.copy(
+                    loadingGeo = false,
+                    departments = (result as? ApiResult.Success)?.data ?: emptyList(),
+                )
+            }
+        }
+    }
+
+    fun selectDepartment(departmentId: Int?) {
+        _state.update {
+            it.copy(departmentId = departmentId, localityId = null, localities = emptyList())
+        }
+        departmentId ?: return
+
+        viewModelScope.launch {
+            _state.update { it.copy(loadingGeo = true) }
+            val result = geoRepository.localities(departmentId)
+            _state.update {
+                it.copy(
+                    loadingGeo = false,
+                    localities = (result as? ApiResult.Success)?.data ?: emptyList(),
+                )
+            }
+        }
+    }
+
+    fun selectLocality(localityId: Int?) {
+        _state.update { it.copy(localityId = localityId, fieldErrors = it.fieldErrors - "ubicacion") }
+    }
+
+    // ── Punto del teléfono ───────────────────────────────────────────────────
+
+    /**
+     * Llena lat/lng con la posición actual.
+     *
+     * La pantalla llama a esto **después** de que el permiso fue concedido. Un
+     * `null` acá no es un error del usuario: puede ser el GPS apagado o un
+     * primer fix que no llegó, y el formulario sigue siendo válido eligiendo la
+     * localidad a mano.
+     */
+    fun useCurrentLocation() {
+        if (_state.value.locating) return
+        _state.update { it.copy(locating = true, locationError = null) }
+
+        viewModelScope.launch {
+            val point = locationProvider.currentPoint()
+            _state.update {
+                if (point == null) {
+                    it.copy(
+                        locating = false,
+                        locationError = "No se pudo obtener tu ubicación. " +
+                            "Revisá que el GPS esté encendido, o elegí la localidad a mano.",
+                    )
+                } else {
+                    it.copy(
+                        locating = false,
+                        latitude = point.latitude,
+                        longitude = point.longitude,
+                        fieldErrors = it.fieldErrors - "ubicacion",
+                    )
+                }
+            }
+        }
+    }
+
+    fun onLocationPermissionDenied() {
+        _state.update {
+            it.copy(
+                locating = false,
+                locationError = "Sin permiso de ubicación no podemos marcar el punto. " +
+                    "Podés elegir la localidad a mano.",
+            )
+        }
+    }
+
+    fun clearPoint() {
+        _state.update { it.copy(latitude = null, longitude = null, locationError = null) }
+    }
+
+    // ── Campos ───────────────────────────────────────────────────────────────
+
+    fun setDate(date: LocalDate) = _state.update { it.copy(theftDate = date) }
+    fun setTimeApprox(value: String) = _state.update { it.copy(timeApprox = value) }
+    fun setDescription(value: String) = _state.update { it.copy(description = value) }
+    fun setStreetType(value: StreetType?) = _state.update { it.copy(streetType = value) }
+    fun setStreetName(value: String) = _state.update { it.copy(streetName = value) }
+    fun setStreetNumber(value: String) = _state.update { it.copy(streetNumber = value) }
+    fun setReference(value: String) = _state.update { it.copy(reference = value) }
+    fun setContactPhone(value: String) = _state.update { it.copy(contactPhone = value) }
+    fun setContactEmail(value: String) = _state.update { it.copy(contactEmail = value) }
+    fun setContactPublic(value: Boolean) = _state.update { it.copy(contactPublic = value) }
+    fun setRewardOffered(value: Boolean) = _state.update { it.copy(rewardOffered = value) }
+    fun setRewardAmount(value: String) = _state.update { it.copy(rewardAmount = value) }
+    fun setRewardCurrency(value: String) =
+        _state.update { it.copy(rewardCurrency = value.uppercase()) }
+
+    // ── Envío ────────────────────────────────────────────────────────────────
+
+    fun submit() {
+        val current = _state.value
+        if (current.submitting || current.createdReportId != null) return
+
+        val errors = validate(current)
+        if (errors.isNotEmpty()) {
+            _state.update { it.copy(fieldErrors = errors) }
+            return
+        }
+
+        val id = bicycleId ?: return
+        _state.update { it.copy(submitting = true, formError = null, fieldErrors = emptyMap()) }
+
+        viewModelScope.launch {
+            val result = theftRepository.reportTheft(id, current.toRequest())
+            when (result) {
+                is ApiResult.Success -> _state.update {
+                    it.copy(submitting = false, createdReportId = result.data.id)
+                }
+
+                else -> _state.update {
+                    it.copy(
+                        submitting = false,
+                        // El texto de un 503 ya avisa que la operación pudo
+                        // haberse completado igual: acá eso es literal, porque la
+                        // denuncia se persiste antes de los pasos best-effort.
+                        formError = result.toUserMessage("No se pudo registrar la denuncia."),
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Genera el PDF de una denuncia **ya creada**.
+     *
+     * Que falle no toca la denuncia, y por eso el error lo dice explícitamente:
+     * confundir "no salió el PDF" con "no se hizo la denuncia" es el peor
+     * malentendido posible en esta pantalla.
+     */
+    fun downloadPdf() {
+        val reportId = _state.value.createdReportId ?: return
+        if (_state.value.generatingPdf) return
+
+        _state.update { it.copy(generatingPdf = true, pdfError = null) }
+
+        viewModelScope.launch {
+            when (val result = theftRepository.generatePdf(reportId)) {
+                is ApiResult.Success -> _state.update {
+                    it.copy(generatingPdf = false, pdfUrl = result.data.presignedUrl)
+                }
+
+                else -> _state.update {
+                    it.copy(
+                        generatingPdf = false,
+                        pdfError = "No se pudo generar el PDF. La denuncia ya quedó hecha; " +
+                            "podés descargarlo más tarde.",
+                    )
+                }
+            }
+        }
+    }
+
+    /** La pantalla avisa que ya abrió la URL, para no volver a abrirla en cada recomposición. */
+    fun onPdfOpened() = _state.update { it.copy(pdfUrl = null) }
+
+    private fun validate(s: ReportTheftUiState): Map<String, String> = buildMap {
+        if (s.theftDate > s.maxDate) put("fecha", "La fecha no puede ser futura.")
+
+        if (!s.hasLocation) {
+            put(
+                "ubicacion",
+                "Decinos dónde fue: elegí la localidad o marcá el punto con tu ubicación.",
+            )
+        }
+
+        if (s.timeApprox.length > ReportTheftRequestDto.MAX_TIME_APPROX) {
+            put("hora", "Máximo ${ReportTheftRequestDto.MAX_TIME_APPROX} caracteres.")
+        }
+        if (s.description.length > ReportTheftRequestDto.MAX_DESCRIPTION) {
+            put("descripcion", "Máximo ${ReportTheftRequestDto.MAX_DESCRIPTION} caracteres.")
+        }
+        if (s.streetName.length > TheftLocationDto.MAX_STREET_NAME) {
+            put("calle", "Máximo ${TheftLocationDto.MAX_STREET_NAME} caracteres.")
+        }
+        if (s.streetNumber.length > TheftLocationDto.MAX_STREET_NUMBER) {
+            put("altura", "Máximo ${TheftLocationDto.MAX_STREET_NUMBER} caracteres.")
+        }
+        if (s.reference.length > TheftLocationDto.MAX_REFERENCE) {
+            put("referencia", "Máximo ${TheftLocationDto.MAX_REFERENCE} caracteres.")
+        }
+        if (s.contactPhone.length > ReportTheftRequestDto.MAX_CONTACT_PHONE) {
+            put("telefono", "Máximo ${ReportTheftRequestDto.MAX_CONTACT_PHONE} caracteres.")
+        }
+        if (s.contactEmail.length > ReportTheftRequestDto.MAX_CONTACT_EMAIL) {
+            put("email", "Máximo ${ReportTheftRequestDto.MAX_CONTACT_EMAIL} caracteres.")
+        }
+
+        if (s.rewardOffered) {
+            val amount = s.rewardAmount.trim().replace(',', '.')
+            val value = amount.toBigDecimalOrNull()
+            when {
+                amount.isBlank() -> put("recompensa", "Poné el monto, o desactivá la recompensa.")
+                value == null -> put("recompensa", "El monto tiene que ser un número.")
+                value.signum() < 0 -> put("recompensa", "El monto no puede ser negativo.")
+                value.precision() - value.scale() > 10 -> put("recompensa", "El monto es demasiado grande.")
+                value.scale() > 2 -> put("recompensa", "Como máximo dos decimales.")
+            }
+            if (!ReportTheftRequestDto.CURRENCY_REGEX.matches(s.rewardCurrency)) {
+                put("moneda", "Tres letras, como ARS o USD.")
+            }
+        }
+    }
+
+    private fun ReportTheftUiState.toRequest() = ReportTheftRequestDto(
+        theftDate = theftDate,
+        theftTimeApprox = timeApprox.trim().ifBlank { null },
+        theftLocation = buildLocation(),
+        theftDescription = description.trim().ifBlank { null },
+        contactPhone = contactPhone.trim().ifBlank { null },
+        contactEmail = contactEmail.trim().ifBlank { null },
+        contactPublic = contactPublic,
+        rewardOffered = rewardOffered,
+        rewardAmount = if (rewardOffered) rewardAmount.trim().replace(',', '.') else null,
+        rewardCurrency = if (rewardOffered) rewardCurrency else null,
+    )
+
+    /**
+     * Arma la ubicación, o `null` si no hay nada que mandar.
+     *
+     * Ese `null` **no** puede llegar al backend en una denuncia válida —lo
+     * impide [ReportTheftUiState.hasLocation]— y por eso existe igual: durante
+     * mucho tiempo el servidor respondía 500 con la denuncia ya creada cuando
+     * llegaba nulo. Está arreglado del lado del servidor, pero la forma sigue
+     * siendo la misma que el front web y no conviene inventar otra.
+     */
+    private fun ReportTheftUiState.buildLocation(): TheftLocationDto? {
+        val hasStreet = streetType != null || streetName.isNotBlank()
+        if (localityId == null && !hasStreet && latitude == null && longitude == null) return null
+
+        return TheftLocationDto(
+            localityId = localityId,
+            streetType = streetType?.apiValue,
+            streetName = streetName.trim().ifBlank { null },
+            streetNumber = streetNumber.trim().ifBlank { null },
+            reference = reference.trim().ifBlank { null },
+            latitude = latitude,
+            longitude = longitude,
+            // "EXACT" está reservado a las pistas, donde el informante marca el
+            // punto donde vio la bici. Acá el punto es del teléfono de quien
+            // denuncia, que no necesariamente estaba ahí cuando se la robaron.
+            precision = if (latitude != null) "APPROXIMATE" else null,
+        )
+    }
+}
+
+private fun String.toBigDecimalOrNull(): java.math.BigDecimal? =
+    runCatching { java.math.BigDecimal(this) }.getOrNull()

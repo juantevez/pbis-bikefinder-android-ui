@@ -6,6 +6,7 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.toRoute
 import kotlinx.serialization.Serializable
 import pbis.bike.finder.data.remote.SessionEvent
 import pbis.bike.finder.data.remote.SessionManager
@@ -13,6 +14,7 @@ import pbis.bike.finder.ui.addbike.AddBikeScreen
 import pbis.bike.finder.ui.bikes.BikesScreen
 import pbis.bike.finder.ui.dashboard.DashboardScreen
 import pbis.bike.finder.ui.login.LoginScreen
+import pbis.bike.finder.ui.reporttheft.ReportTheftScreen
 
 /**
  * Rutas de la app, tipadas.
@@ -112,10 +114,13 @@ fun BikeFinderNavHost(
                 onAddBike = { navController.navigate(Route.AddBike) },
                 onMyBikes = { navController.navigate(Route.MyBikes) },
                 onUpdateComponents = { navController.navigate(Route.UpdateComponents(it)) },
-                // El robo entra por el plan de búsqueda, no por la denuncia: es
-                // el orden del front web, y el plan define el alcance de la
-                // búsqueda que la denuncia va a publicar.
-                onReportTheft = { navController.navigate(Route.Subscription(it)) },
+                // En el front web el robo entra por el plan de búsqueda, que es
+                // pago, y recién después por la denuncia. Acá va directo a la
+                // denuncia mientras `Subscription` siga siendo un placeholder:
+                // dejarlo en el orden final haría la denuncia inalcanzable.
+                // Cuando exista el plan, este destino vuelve a ser
+                // `Route.Subscription(it)` y la denuncia no se toca.
+                onReportTheft = { navController.navigate(Route.ReportTheft(it)) },
             )
         }
         composable<Route.MyBikes> {
@@ -142,7 +147,17 @@ fun BikeFinderNavHost(
         }
         composable<Route.UpdateComponents> { PlaceholderScreen("Actualizar componentes") }
         composable<Route.Subscription> { PlaceholderScreen("Plan de búsqueda") }
-        composable<Route.ReportTheft> { PlaceholderScreen("Reportar robo") }
+        composable<Route.ReportTheft> { entry ->
+            val route = entry.toRoute<Route.ReportTheft>()
+            ReportTheftScreen(
+                bikeId = route.bikeId,
+                // Igual que el alta: la denuncia sale del back stack al
+                // terminar. Volver atrás sobre un formulario ya enviado sólo
+                // puede llevar a intentar denunciar dos veces la misma bici.
+                onReported = { navController.popBackStack() },
+                onBack = { navController.popBackStack() },
+            )
+        }
         composable<Route.TipsList> { PlaceholderScreen("Pistas recibidas") }
         composable<Route.TipDetail> { PlaceholderScreen("Detalle de pista") }
         composable<Route.Profile> { PlaceholderScreen("Perfil") }

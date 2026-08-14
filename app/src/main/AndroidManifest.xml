@@ -16,6 +16,18 @@
     -->
     <uses-permission android:name="android.permission.ACCESS_MEDIA_LOCATION" />
 
+    <!--
+      Ubicación del teléfono, para el botón "usar mi ubicación" de la denuncia.
+      También se pide en runtime y sólo al tocar ese botón: el resto de la
+      pantalla funciona sin el permiso, eligiendo la localidad a mano.
+
+      Van los dos niveles porque desde Android 12 el usuario puede conceder sólo
+      la aproximada, y una denuncia con precisión de barrio sigue sirviendo:
+      rechazarla sería peor que aceptarla.
+    -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
     <application
         android:name=".BikeFinderApp"
         android:allowBackup="true"
