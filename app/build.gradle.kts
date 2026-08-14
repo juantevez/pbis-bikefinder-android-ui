@@ -83,6 +83,10 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.coil.compose)
+    // Mapa. Son los mismos tiles de OpenStreetMap que usa el Leaflet del front
+    // web, y a diferencia de Google Maps no pide API key ni un proyecto con
+    // facturación habilitada.
+    implementation(libs.osmdroid.android)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.datetime)
     implementation(libs.retrofit)

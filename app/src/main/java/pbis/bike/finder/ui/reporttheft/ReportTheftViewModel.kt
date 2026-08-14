@@ -23,9 +23,13 @@ import pbis.bike.finder.data.remote.dto.TheftLocationDto
 import pbis.bike.finder.data.repository.BicycleRepository
 import pbis.bike.finder.data.repository.AuthRepository
 import pbis.bike.finder.data.repository.GeoRepository
+import pbis.bike.finder.data.repository.GeocodingRepository
+import pbis.bike.finder.data.repository.ResolvedAddress
 import pbis.bike.finder.data.repository.TheftRepository
 import pbis.bike.finder.ui.common.toUserMessage
 import javax.inject.Inject
+
+private const val GEO_ERROR = "No se pudo cargar la lista de lugares."
 
 /** Tipos de vía que entiende el backend, con su etiqueta para la UI. */
 enum class StreetType(val apiValue: String, val label: String) {
@@ -55,12 +59,28 @@ data class ReportTheftUiState(
     val departmentId: Int? = null,
     val localityId: Int? = null,
     val loadingGeo: Boolean = false,
+    /**
+     * Falla de location-service.
+     *
+     * Existe porque no tenerlo fue un bug real: los desplegables se llenaban con
+     * una lista vacía cuando el servicio estaba caído, y "no hay datos" se veía
+     * exactamente igual que "no se pudo preguntar". El usuario se quedaba sin
+     * forma de elegir localidad y sin ninguna pista de por qué.
+     */
+    val geoError: String? = null,
 
-    // Punto del teléfono
+    // Punto en el mapa
     val latitude: Double? = null,
     val longitude: Double? = null,
     val locating: Boolean = false,
     val locationError: String? = null,
+    /** Adónde mover la cámara sin tocar el marcador. */
+    val centerOn: Pair<Double, Double>? = null,
+
+    // Dirección resuelta por Nominatim, todavía sin confirmar
+    val geocoding: Boolean = false,
+    val resolvedAddress: ResolvedAddress? = null,
+    val geocodingError: String? = null,
 
     // Dirección
     val streetType: StreetType? = null,
@@ -122,6 +142,7 @@ class ReportTheftViewModel @Inject constructor(
     private val theftRepository: TheftRepository,
     private val bicycleRepository: BicycleRepository,
     private val geoRepository: GeoRepository,
+    private val geocodingRepository: GeocodingRepository,
     private val authRepository: AuthRepository,
     private val locationProvider: DeviceLocationProvider,
 ) : ViewModel() {
@@ -183,17 +204,21 @@ class ReportTheftViewModel @Inject constructor(
 
     // ── Cascada geográfica ───────────────────────────────────────────────────
 
-    private fun loadCountries() {
-        _state.update { it.copy(loadingGeo = true) }
+    fun loadCountries() {
+        _state.update { it.copy(loadingGeo = true, geoError = null) }
 
         viewModelScope.launch {
-            val result = geoRepository.countries()
-            _state.update { it.copy(loadingGeo = false) }
-            if (result is ApiResult.Success) {
-                _state.update { it.copy(countries = result.data) }
-                // Argentina preseleccionada, igual que el front web: es el único
-                // país con datos cargados, y ahorra el primer desplegable.
-                result.data.firstOrNull { it.isoCode2 == "AR" }?.let { selectCountry(it.id) }
+            when (val result = geoRepository.countries()) {
+                is ApiResult.Success -> {
+                    _state.update { it.copy(loadingGeo = false, countries = result.data) }
+                    // Argentina preseleccionada, igual que el front web: es el
+                    // único país con datos cargados, y ahorra un desplegable.
+                    result.data.firstOrNull { it.isoCode2 == "AR" }?.let { selectCountry(it.id) }
+                }
+
+                else -> _state.update {
+                    it.copy(loadingGeo = false, geoError = result.toUserMessage(GEO_ERROR))
+                }
             }
         }
     }
@@ -211,18 +236,20 @@ class ReportTheftViewModel @Inject constructor(
                 provinces = emptyList(),
                 departments = emptyList(),
                 localities = emptyList(),
+                geoError = null,
             )
         }
         countryId ?: return
 
         viewModelScope.launch {
             _state.update { it.copy(loadingGeo = true) }
-            val result = geoRepository.provinces(countryId)
-            _state.update {
-                it.copy(
-                    loadingGeo = false,
-                    provinces = (result as? ApiResult.Success)?.data ?: emptyList(),
-                )
+            when (val result = geoRepository.provinces(countryId)) {
+                is ApiResult.Success ->
+                    _state.update { it.copy(loadingGeo = false, provinces = result.data) }
+
+                else -> _state.update {
+                    it.copy(loadingGeo = false, geoError = result.toUserMessage(GEO_ERROR))
+                }
             }
         }
     }
@@ -235,42 +262,70 @@ class ReportTheftViewModel @Inject constructor(
                 localityId = null,
                 departments = emptyList(),
                 localities = emptyList(),
+                geoError = null,
             )
         }
         provinceId ?: return
 
         viewModelScope.launch {
             _state.update { it.copy(loadingGeo = true) }
-            val result = geoRepository.departments(provinceId)
-            _state.update {
-                it.copy(
-                    loadingGeo = false,
-                    departments = (result as? ApiResult.Success)?.data ?: emptyList(),
-                )
+            when (val result = geoRepository.departments(provinceId)) {
+                is ApiResult.Success ->
+                    _state.update { it.copy(loadingGeo = false, departments = result.data) }
+
+                else -> _state.update {
+                    it.copy(loadingGeo = false, geoError = result.toUserMessage(GEO_ERROR))
+                }
             }
         }
     }
 
     fun selectDepartment(departmentId: Int?) {
         _state.update {
-            it.copy(departmentId = departmentId, localityId = null, localities = emptyList())
+            it.copy(
+                departmentId = departmentId,
+                localityId = null,
+                localities = emptyList(),
+                geoError = null,
+            )
         }
         departmentId ?: return
 
         viewModelScope.launch {
             _state.update { it.copy(loadingGeo = true) }
-            val result = geoRepository.localities(departmentId)
-            _state.update {
-                it.copy(
-                    loadingGeo = false,
-                    localities = (result as? ApiResult.Success)?.data ?: emptyList(),
-                )
+            when (val result = geoRepository.localities(departmentId)) {
+                is ApiResult.Success ->
+                    _state.update { it.copy(loadingGeo = false, localities = result.data) }
+
+                else -> _state.update {
+                    it.copy(loadingGeo = false, geoError = result.toUserMessage(GEO_ERROR))
+                }
             }
         }
     }
 
+    /**
+     * Elegir localidad **centra el mapa**, que es el atajo para no buscar a mano.
+     *
+     * Mover la cámara no es marcar el punto: la localidad ya alcanza como
+     * ubicación, y el marcador sigue siendo del usuario. La localidad trae sus
+     * coordenadas en la misma respuesta, así que el centrado no cuesta ninguna
+     * request extra — algo que el front web tiene disponible y no aprovecha.
+     */
     fun selectLocality(localityId: Int?) {
-        _state.update { it.copy(localityId = localityId, fieldErrors = it.fieldErrors - "ubicacion") }
+        val locality = _state.value.localities.firstOrNull { it.id == localityId }
+        val center = locality?.let { l ->
+            l.latitude?.let { lat -> l.longitude?.let { lng -> lat to lng } }
+        }
+
+        _state.update {
+            it.copy(
+                localityId = localityId,
+                centerOn = center ?: it.centerOn,
+                fieldErrors = it.fieldErrors - "ubicacion",
+                formError = null,
+            )
+        }
     }
 
     // ── Punto del teléfono ───────────────────────────────────────────────────
@@ -301,7 +356,14 @@ class ReportTheftViewModel @Inject constructor(
                         locating = false,
                         latitude = point.latitude,
                         longitude = point.longitude,
+                        // Además de marcar el punto, lleva la cámara: si el mapa
+                        // quedara en Buenos Aires, el usuario no vería el
+                        // marcador que acaba de aparecer.
+                        centerOn = point.latitude to point.longitude,
+                        resolvedAddress = null,
+                        geocodingError = null,
                         fieldErrors = it.fieldErrors - "ubicacion",
+                        formError = null,
                     )
                 }
             }
@@ -318,9 +380,93 @@ class ReportTheftViewModel @Inject constructor(
         }
     }
 
-    fun clearPoint() {
-        _state.update { it.copy(latitude = null, longitude = null, locationError = null) }
+    /** Toque o arrastre del marcador en el mapa. */
+    fun setPoint(latitude: Double, longitude: Double) {
+        _state.update {
+            it.copy(
+                latitude = latitude,
+                longitude = longitude,
+                locationError = null,
+                // La dirección que se había resuelto era de otro punto: dejarla
+                // en pantalla invitaría a confirmar una calle que ya no
+                // corresponde al marcador.
+                resolvedAddress = null,
+                geocodingError = null,
+                fieldErrors = it.fieldErrors - "ubicacion",
+                formError = null,
+            )
+        }
     }
+
+    fun clearPoint() {
+        _state.update {
+            it.copy(
+                latitude = null,
+                longitude = null,
+                locationError = null,
+                resolvedAddress = null,
+                geocodingError = null,
+            )
+        }
+    }
+
+    /**
+     * Le pregunta a Nominatim qué dirección hay en el punto marcado.
+     *
+     * Va detrás de un botón y no automáticamente en cada toque: la política de
+     * uso de OSM pide como máximo una request por segundo, y arrastrar el
+     * marcador genera decenas de posiciones intermedias. El front web lo llama
+     * en cada `dragend` sin debounce, que es la forma conocida de ganarse un
+     * bloqueo por IP.
+     */
+    fun resolveAddress() {
+        val current = _state.value
+        val lat = current.latitude ?: return
+        val lng = current.longitude ?: return
+        if (current.geocoding) return
+
+        _state.update { it.copy(geocoding = true, geocodingError = null) }
+
+        viewModelScope.launch {
+            when (val result = geocodingRepository.reverse(lat, lng)) {
+                is ApiResult.Success -> _state.update {
+                    it.copy(geocoding = false, resolvedAddress = result.data)
+                }
+
+                else -> _state.update {
+                    it.copy(
+                        geocoding = false,
+                        // El punto ya está marcado y la denuncia es válida sin
+                        // esto: es una comodidad que falló, no un error.
+                        geocodingError = "No se pudo resolver la dirección. " +
+                            "El punto quedó marcado igual; podés escribir la calle a mano.",
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Confirma la dirección propuesta y la copia a los campos.
+     *
+     * Las coordenadas y la dirección son cosas distintas: el punto ya viaja
+     * desde que se marcó, y la calle **sólo** si el usuario acepta. Descartar la
+     * propuesta y quedarse con el punto pelado es un estado válido.
+     */
+    fun applyResolvedAddress() {
+        val address = _state.value.resolvedAddress ?: return
+        _state.update {
+            it.copy(
+                streetType = StreetType.entries.firstOrNull { t -> t.apiValue == address.streetType }
+                    ?: it.streetType,
+                streetName = address.streetName ?: it.streetName,
+                streetNumber = address.streetNumber ?: it.streetNumber,
+                resolvedAddress = null,
+            )
+        }
+    }
+
+    fun discardResolvedAddress() = _state.update { it.copy(resolvedAddress = null) }
 
     // ── Campos ───────────────────────────────────────────────────────────────
 
@@ -347,7 +493,17 @@ class ReportTheftViewModel @Inject constructor(
 
         val errors = validate(current)
         if (errors.isNotEmpty()) {
-            _state.update { it.copy(fieldErrors = errors) }
+            // El resumen junto al botón no es redundante con los errores de cada
+            // campo: el botón está al final de un formulario largo, y el error
+            // de ubicación se pinta media pantalla más arriba. Sin esto, apretar
+            // "Presentar la denuncia" se siente como que la app no hizo nada.
+            _state.update {
+                it.copy(
+                    fieldErrors = errors,
+                    formError = if (errors.size == 1) errors.values.first()
+                    else "Revisá los campos marcados: ${errors.keys.joinToString(", ")}.",
+                )
+            }
             return
         }
 

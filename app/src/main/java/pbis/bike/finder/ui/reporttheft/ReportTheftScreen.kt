@@ -58,6 +58,7 @@ import kotlinx.datetime.TimeZone
 import kotlinx.datetime.atStartOfDayIn
 import kotlinx.datetime.toLocalDateTime
 import pbis.bike.finder.ui.common.Dropdown
+import pbis.bike.finder.ui.common.MapPicker
 
 /**
  * Formulario de denuncia.
@@ -160,8 +161,8 @@ fun ReportTheftScreen(
             HorizontalDivider(Modifier.padding(vertical = 4.dp))
             SectionTitle("Dónde fue")
             Text(
-                text = "Es el único dato que no podemos deducir. Alcanza con la localidad " +
-                    "o con el punto de tu ubicación.",
+                text = "Es el único dato que no podemos deducir. Tocá el mapa donde fue, " +
+                    "o elegí la localidad.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -172,6 +173,11 @@ fun ReportTheftScreen(
                 onProvince = viewModel::selectProvince,
                 onDepartment = viewModel::selectDepartment,
                 onLocality = viewModel::selectLocality,
+                onRetryGeo = viewModel::loadCountries,
+                onPointChanged = viewModel::setPoint,
+                onResolveAddress = viewModel::resolveAddress,
+                onApplyAddress = viewModel::applyResolvedAddress,
+                onDiscardAddress = viewModel::discardResolvedAddress,
                 onUseCurrentLocation = {
                     val fine = ContextCompat.checkSelfPermission(
                         context,
@@ -412,10 +418,40 @@ private fun LocationSection(
     onProvince: (Int?) -> Unit,
     onDepartment: (Int?) -> Unit,
     onLocality: (Int?) -> Unit,
+    onRetryGeo: () -> Unit,
+    onPointChanged: (Double, Double) -> Unit,
+    onResolveAddress: () -> Unit,
+    onApplyAddress: () -> Unit,
+    onDiscardAddress: () -> Unit,
     onUseCurrentLocation: () -> Unit,
     onClearPoint: () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        // Que location-service esté caído tiene que decirse. Sin esto, los
+        // desplegables vacíos se leen como "no hay lugares cargados".
+        state.geoError?.let {
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                ),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(Modifier.padding(16.dp)) {
+                    Text(
+                        text = it,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                    )
+                    Text(
+                        text = "Podés marcar el punto en el mapa igual.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                    )
+                    TextButton(onClick = onRetryGeo) { Text("Reintentar") }
+                }
+            }
+        }
+
         Dropdown(
             label = "País",
             options = state.countries,
@@ -451,6 +487,20 @@ private fun LocationSection(
             placeholder = "Elegí un departamento primero",
         )
 
+        Text(
+            text = if (state.latitude == null) "Tocá el mapa donde te la robaron"
+            else "Arrastrá el marcador si no quedó justo",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        MapPicker(
+            latitude = state.latitude,
+            longitude = state.longitude,
+            centerOn = state.centerOn,
+            onPointChanged = onPointChanged,
+        )
+
         Card(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             modifier = Modifier.fillMaxWidth(),
@@ -468,31 +518,59 @@ private fun LocationSection(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    TextButton(onClick = onClearPoint) { Text("Quitar el punto") }
+                    Row {
+                        TextButton(onClick = onResolveAddress, enabled = !state.geocoding) {
+                            Text(if (state.geocoding) "Buscando…" else "¿Qué dirección es?")
+                        }
+                        TextButton(onClick = onClearPoint) { Text("Quitar") }
+                    }
                 } else {
                     OutlinedButton(
                         onClick = onUseCurrentLocation,
                         enabled = !state.locating,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text(if (state.locating) "Buscando…" else "📍 Usar mi ubicación")
+                        Text(if (state.locating) "Buscando…" else "📍 Estoy en el lugar")
                     }
                     Text(
-                        text = "Sirve si estás en el lugar del robo. Si denunciás desde casa, " +
-                            "mejor elegí la localidad.",
+                        text = "Marca el punto donde estás ahora. Si denunciás desde casa, " +
+                            "mejor tocá el mapa en el lugar del robo.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 8.dp),
                     )
                 }
 
-                state.locationError?.let {
+                listOfNotNull(state.locationError, state.geocodingError).forEach {
                     Text(
                         text = it,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 8.dp),
                     )
+                }
+            }
+        }
+
+        // La dirección propuesta se confirma o se descarta. El punto ya viaja
+        // desde que se marcó; la calle sólo si el usuario dice que sí.
+        state.resolvedAddress?.let { address ->
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                ),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(Modifier.padding(16.dp)) {
+                    Text(
+                        text = address.display ?: "Sin dirección conocida",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
+                    Row {
+                        TextButton(onClick = onApplyAddress) { Text("Usar esta dirección") }
+                        TextButton(onClick = onDiscardAddress) { Text("Descartar") }
+                    }
                 }
             }
         }

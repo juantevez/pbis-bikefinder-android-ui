@@ -27,6 +27,9 @@ import pbis.bike.finder.data.remote.SessionManager
 import pbis.bike.finder.data.remote.api.AuthApi
 import pbis.bike.finder.data.remote.api.BicycleApi
 import pbis.bike.finder.data.remote.api.GeoApi
+import pbis.bike.finder.data.remote.api.NominatimAddressDto
+import pbis.bike.finder.data.remote.api.NominatimApi
+import pbis.bike.finder.data.remote.api.NominatimReverseDto
 import pbis.bike.finder.data.remote.api.TheftReportApi
 import pbis.bike.finder.data.remote.dto.AdminLevel1ListResponseDto
 import pbis.bike.finder.data.remote.dto.AdminLevel2ListResponseDto
@@ -34,6 +37,7 @@ import pbis.bike.finder.data.remote.dto.AuthResponseDto
 import pbis.bike.finder.data.remote.dto.BicycleDto
 import pbis.bike.finder.data.remote.dto.ConfirmPasswordResetDto
 import pbis.bike.finder.data.remote.dto.CountryListResponseDto
+import pbis.bike.finder.data.remote.dto.LocalityDto
 import pbis.bike.finder.data.remote.dto.LocalityListResponseDto
 import pbis.bike.finder.data.remote.dto.LoginRequestDto
 import pbis.bike.finder.data.remote.dto.LogoutRequestDto
@@ -50,6 +54,7 @@ import pbis.bike.finder.data.remote.dto.VerifyEmailDto
 import pbis.bike.finder.data.repository.AuthRepository
 import pbis.bike.finder.data.repository.BicycleRepository
 import pbis.bike.finder.data.repository.GeoRepository
+import pbis.bike.finder.data.repository.GeocodingRepository
 import pbis.bike.finder.data.repository.TheftRepository
 import pbis.bike.finder.testing.StubBicycleApi
 import pbis.bike.finder.testing.StubTheftReportApi
@@ -90,11 +95,35 @@ class ReportTheftViewModelTest {
         }
     }
 
-    private class FakeGeoApi : GeoApi {
-        override suspend fun countries() = CountryListResponseDto()
+    private class FakeGeoApi(
+        var countries: () -> CountryListResponseDto = { CountryListResponseDto() },
+        var localities: () -> LocalityListResponseDto = { LocalityListResponseDto() },
+    ) : GeoApi {
+        override suspend fun countries() = countries.invoke()
         override suspend fun provinces(countryId: Int) = AdminLevel1ListResponseDto()
         override suspend fun departments(provinceId: Int) = AdminLevel2ListResponseDto()
-        override suspend fun localities(departmentId: Int) = LocalityListResponseDto()
+        override suspend fun localities(departmentId: Int) = localities.invoke()
+    }
+
+    private class FakeNominatimApi(
+        var respond: () -> NominatimReverseDto = {
+            NominatimReverseDto(
+                address = NominatimAddressDto(
+                    road = "Av. 7",
+                    houseNumber = "1234",
+                    city = "La Plata",
+                ),
+            )
+        },
+    ) : NominatimApi {
+        override suspend fun reverse(
+            lat: Double,
+            lon: Double,
+            format: String,
+            zoom: Int,
+            addressDetails: Int,
+            language: String,
+        ) = respond()
     }
 
     private class FakeTheftApi(
@@ -142,6 +171,8 @@ class ReportTheftViewModelTest {
     private fun viewModel(
         bicycleApi: FakeBicycleApi = FakeBicycleApi(),
         theftApi: FakeTheftApi = FakeTheftApi(),
+        geoApi: FakeGeoApi = FakeGeoApi(),
+        nominatimApi: FakeNominatimApi = FakeNominatimApi(),
         location: DevicePoint? = null,
     ): ReportTheftViewModel {
         val authApi = FakeAuthApi()
@@ -149,7 +180,8 @@ class ReportTheftViewModelTest {
         return ReportTheftViewModel(
             theftRepository = TheftRepository(bicycleApi, theftApi, json),
             bicycleRepository = BicycleRepository(bicycleApi, json),
-            geoRepository = GeoRepository(FakeGeoApi(), json),
+            geoRepository = GeoRepository(geoApi, json),
+            geocodingRepository = GeocodingRepository(nominatimApi, json),
             authRepository = AuthRepository(
                 api = authApi,
                 tokenStore = store,
@@ -254,6 +286,149 @@ class ReportTheftViewModelTest {
         sut.submit()
         advanceUntilIdle()
         assertEquals(7, api.lastReport?.theftLocation?.localityId)
+    }
+
+    @Test
+    fun `si location-service esta caido se dice, no quedan desplegables vacios`() = runTest {
+        // Era un bug real: la cascada se tragaba el error y "no hay datos" se
+        // veía igual que "no se pudo preguntar". Con los desplegables vacíos, el
+        // usuario no tenía forma de elegir localidad ni de saber por qué.
+        val geoApi = FakeGeoApi(countries = { throw httpError(503) })
+        val sut = viewModel(geoApi = geoApi)
+        sut.start("bici-1")
+        advanceUntilIdle()
+
+        assertNotNull(sut.state.value.geoError)
+        assertTrue(sut.state.value.countries.isEmpty())
+    }
+
+    @Test
+    fun `elegir localidad centra el mapa sin marcar el punto`() = runTest {
+        val geoApi = FakeGeoApi(
+            localities = {
+                LocalityListResponseDto(
+                    items = listOf(
+                        LocalityDto(id = 9, name = "La Plata", latitude = -34.92, longitude = -57.95),
+                    ),
+                )
+            },
+        )
+        val sut = viewModel(geoApi = geoApi)
+        sut.start("bici-1")
+        advanceUntilIdle()
+
+        sut.selectDepartment(1)
+        advanceUntilIdle()
+        sut.selectLocality(9)
+
+        assertEquals(-34.92 to -57.95, sut.state.value.centerOn)
+        // Centrar la cámara no es marcar dónde fue el robo: el marcador sigue
+        // siendo del usuario.
+        assertNull(sut.state.value.latitude)
+    }
+
+    @Test
+    fun `un error de validacion se ve tambien junto al boton`() = runTest {
+        // El botón está al final de un formulario largo y el error de ubicación
+        // se pinta media pantalla más arriba: sin este resumen, apretar
+        // "Presentar la denuncia" parecía no hacer nada.
+        val sut = viewModel()
+        sut.start("bici-1")
+        advanceUntilIdle()
+
+        sut.submit()
+        advanceUntilIdle()
+
+        assertNotNull(sut.state.value.formError)
+    }
+
+    // ── Mapa y dirección ─────────────────────────────────────────────────────
+
+    @Test
+    fun `tocar el mapa marca el punto`() = runTest {
+        val api = FakeBicycleApi()
+        val sut = viewModel(api)
+        sut.start("bici-1")
+        advanceUntilIdle()
+
+        sut.setPoint(-34.9214, -57.9544)
+        sut.submit()
+        advanceUntilIdle()
+
+        assertEquals(-34.9214, api.lastReport?.theftLocation?.latitude)
+    }
+
+    @Test
+    fun `la direccion resuelta no viaja hasta que se confirma`() = runTest {
+        val api = FakeBicycleApi()
+        val sut = viewModel(api)
+        sut.start("bici-1")
+        advanceUntilIdle()
+
+        sut.setPoint(-34.9214, -57.9544)
+        sut.resolveAddress()
+        advanceUntilIdle()
+
+        // Propuesta en pantalla, pero todavía no copiada a los campos.
+        assertNotNull(sut.state.value.resolvedAddress)
+        assertEquals("", sut.state.value.streetName)
+
+        sut.applyResolvedAddress()
+
+        assertEquals("7", sut.state.value.streetName)
+        assertEquals(StreetType.AVENIDA, sut.state.value.streetType)
+        assertEquals("1234", sut.state.value.streetNumber)
+        assertNull(sut.state.value.resolvedAddress)
+    }
+
+    @Test
+    fun `descartar la direccion deja el punto marcado`() = runTest {
+        // Un punto sin dirección textual es un estado válido: las coordenadas y
+        // la calle son datos distintos.
+        val sut = viewModel()
+        sut.start("bici-1")
+        advanceUntilIdle()
+
+        sut.setPoint(-34.9214, -57.9544)
+        sut.resolveAddress()
+        advanceUntilIdle()
+        sut.discardResolvedAddress()
+
+        assertNull(sut.state.value.resolvedAddress)
+        assertEquals(-34.9214, sut.state.value.latitude)
+    }
+
+    @Test
+    fun `mover el punto descarta la direccion que se habia resuelto`() = runTest {
+        // La dirección era del punto anterior. Dejarla en pantalla invita a
+        // confirmar una calle que ya no corresponde al marcador.
+        val sut = viewModel()
+        sut.start("bici-1")
+        advanceUntilIdle()
+
+        sut.setPoint(-34.9214, -57.9544)
+        sut.resolveAddress()
+        advanceUntilIdle()
+        assertNotNull(sut.state.value.resolvedAddress)
+
+        sut.setPoint(-34.6037, -58.3816)
+
+        assertNull(sut.state.value.resolvedAddress)
+    }
+
+    @Test
+    fun `si Nominatim falla el punto sigue marcado`() = runTest {
+        val nominatim = FakeNominatimApi(respond = { throw httpError(429) })
+        val sut = viewModel(nominatimApi = nominatim)
+        sut.start("bici-1")
+        advanceUntilIdle()
+
+        sut.setPoint(-34.9214, -57.9544)
+        sut.resolveAddress()
+        advanceUntilIdle()
+
+        assertNotNull(sut.state.value.geocodingError)
+        assertEquals(-34.9214, sut.state.value.latitude)
     }
 
     // ── Payload ──────────────────────────────────────────────────────────────

@@ -20,6 +20,7 @@ import pbis.bike.finder.data.remote.api.AuthApi
 import pbis.bike.finder.data.remote.api.BicycleApi
 import pbis.bike.finder.data.remote.api.DashboardApi
 import pbis.bike.finder.data.remote.api.GeoApi
+import pbis.bike.finder.data.remote.api.NominatimApi
 import pbis.bike.finder.data.remote.api.NotificationApi
 import pbis.bike.finder.data.remote.api.PaymentApi
 import pbis.bike.finder.data.remote.api.PublicTipApi
@@ -187,4 +188,41 @@ object NetworkModule {
     @Singleton
     fun provideDashboardApi(client: OkHttpClient, json: Json): DashboardApi =
         retrofit(client, json).create(DashboardApi::class.java)
+
+    /**
+     * Nominatim, el único servicio que no es nuestro.
+     *
+     * Tiene cliente propio y no reusa el de la app por tres razones, todas
+     * necesarias: no debe pasar por el interceptor que reescribe el host hacia
+     * el gateway; **no puede llevar el `Authorization`**, porque mandarle
+     * nuestro token a un tercero es filtrar una credencial; y la política de uso
+     * de OSM exige un `User-Agent` que identifique a la aplicación —el genérico
+     * de OkHttp es motivo de bloqueo por IP—.
+     */
+    @Provides
+    @Singleton
+    fun provideNominatimApi(json: Json): NominatimApi {
+        val client = OkHttpClient.Builder()
+            .addInterceptor { chain ->
+                chain.proceed(
+                    chain.request().newBuilder()
+                        .header(
+                            "User-Agent",
+                            "BikeFinder-Android/${BuildConfig.VERSION_NAME} " +
+                                "(https://github.com/juantevez)",
+                        )
+                        .build(),
+                )
+            }
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(15, TimeUnit.SECONDS)
+            .build()
+
+        return Retrofit.Builder()
+            .baseUrl("https://nominatim.openstreetmap.org/")
+            .client(client)
+            .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
+            .build()
+            .create(NominatimApi::class.java)
+    }
 }
