@@ -95,8 +95,45 @@ enum class SearchPlan(
     val priceUsd: String,
     val frequency: String,
     val months: Int,
+    /** Bajada corta, bajo el nombre. */
+    val tagline: String,
+    /** Los tres puntos de la tarjeta, en el orden de la web. */
+    val features: List<String>,
 ) {
-    VIGIA("Vigía", "9.99", "2× por semana", 2),
-    SABUESO("Sabueso", "18.99", "4× por semana", 4),
-    COMANDO("Comando", "26.99", "4× por semana", 6),
+    VIGIA(
+        displayName = "Vigía",
+        priceUsd = "9.99",
+        frequency = "2× por semana",
+        months = 2,
+        tagline = "Búsqueda esencial",
+        features = listOf(
+            "Planificación de búsqueda 2 veces por semana",
+            "Duración de 2 meses",
+            "Reporte oficial en PDF incluido",
+        ),
+    ),
+    SABUESO(
+        displayName = "Sabueso",
+        priceUsd = "18.99",
+        frequency = "4× por semana",
+        months = 4,
+        tagline = "Búsqueda intensiva",
+        features = listOf(
+            "Planificación de búsqueda 4 veces por semana",
+            "Duración de 4 meses",
+            "Prioridad en coincidencias de imagen",
+        ),
+    ),
+    COMANDO(
+        displayName = "Comando",
+        priceUsd = "26.99",
+        frequency = "4× por semana",
+        months = 6,
+        tagline = "Búsqueda extendida",
+        features = listOf(
+            "Planificación de búsqueda 4 veces por semana",
+            "Duración de 6 meses",
+            "Máxima cobertura temporal de rastreo",
+        ),
+    ),
 }

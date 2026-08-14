@@ -15,9 +15,10 @@ con fotos. El resto de las pantallas son marcadores de posición.
 | Dashboard (resumen + grilla de acciones) | ✅ |
 | Mis bicicletas (listado) | ✅ |
 | Registrar bicicleta (catálogo y manual, con fotos) | ✅ |
+| Plan de búsqueda (pago) | ✅ |
 | Denunciar robo | ✅ |
 | Detalle de bicicleta | ⬜ placeholder |
-| Componentes, plan de búsqueda, pistas, perfil | ⬜ placeholder |
+| Componentes, pistas, perfil | ⬜ placeholder |
 | Registro de cuenta y login con Google | ⬜ sin implementar |
 | Panel de administración | ❌ fuera de alcance — sigue siendo web |
 
@@ -85,7 +86,7 @@ Para apuntar a otro backend sin recompilar está el override en runtime de
 ./gradlew test
 ```
 
-Son 95, en tres grupos:
+Son 104, en tres grupos:
 
 - **Contrato de DTOs** — que los modelos Kotlin coincidan con los `record` de Java.
 - **Lógica** — renovación de sesión, traducción de errores, cascada del wizard.
@@ -125,6 +126,16 @@ Decisiones que no se ven leyendo el código:
   del gateway significa que se cortó la espera, no que la operación no haya ocurrido.
 - **`X-Idempotency-Key` va como parámetro explícito**, no la pone un interceptor: tiene
   que ser la misma en todos los reintentos de un pago.
+- **La clave del pago vive en disco, no en el ViewModel.** En la web está en
+  `sessionStorage` para sobrevivir a un F5; acá el riesgo es peor: al ViewModel lo mata el
+  sistema cuando necesita memoria mientras el usuario está en la app de su banco, que es
+  justo el momento de un pago dudoso. Se descarta sólo ante un final conocido —cobrado o
+  rechazado—; un 503 o un fallo de red la conservan, que es cuando reusarla evita el
+  segundo cobro.
+- **`PROCESSING` no da el plan por pagado.** El front web trata el 201 como final y manda
+  a denunciar con un cobro que todavía puede fallar. Acá se consulta el pago hasta que el
+  estado sea terminal; si no resuelve, el resultado es *incierto* y no *fallido*, y el
+  botón lo dice — si el usuario cree que reintentar le cobra dos veces, abandona.
 - **Sin dynamic color**: la paleta crema/dorada es identidad de marca.
 - **Las fuentes van bundleadas, no descargadas.** Cormorant Garamond y DM Sans (las mismas
   del front web) viven en `res/font` en vez de bajarse con `ui-text-google-fonts`. Cuestan
@@ -179,14 +190,11 @@ usuario autorizaría analizar un dato que el sistema ya borró.
    con Keystore es trabajo real. Quedan excluidos del backup, que es el mínimo. Antes de
    producción: cifrar, o acortar la vida del refresh token para que robarlo valga poco.
 2. **OAuth social sin resolver** — el ítem de mayor fricción.
-3. **Falta el paso de cobro previo a la denuncia.** En el front web, "Reportar robo" no
-   abre el formulario: manda a `suscripcion.html?bikeId=…` (`dashboard.js:227` y
-   `ver-bici.js:380`), donde se elige un plan de búsqueda —9.99 / 18.99 / 26.99 USD— y se
-   paga con `POST /api/v1/payments`; recién con el `201` salta a
-   `reportar-robo.html?bikeId=…&plan=…`. La app entra directo al formulario y saltea el
-   cobro. Portarlo implica pantalla de planes, datos de tarjeta y replicar el manejo de
-   `X-Idempotency-Key` de `suscripcion.js`: la clave se conserva en un 503 —que no prueba
-   que el cobro no haya ocurrido— y se descarta en un 201 o un 422.
+3. **El pago corre contra el stub del backend.** `payment-service` en dev aprueba
+   cualquier token salvo `reject-token`. Contra Mercado Pago real el token lo tiene que
+   generar su SDK del lado del cliente, y eso todavía no está: hoy `cardTokenFor` arma un
+   token de juguete. El número de tarjeta ya no sale del teléfono en ninguno de los dos
+   casos.
 4. **Credenciales de prueba en el código** (`BackendIntegrationTest`). Sólo sirven contra
    un backend local, pero conviene sacarlas a variables de entorno.
 5. **Fechas inconsistentes en el backend**: `media-service` serializa `LocalDateTime` como

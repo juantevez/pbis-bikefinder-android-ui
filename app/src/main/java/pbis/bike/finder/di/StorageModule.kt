@@ -5,6 +5,8 @@ import dagger.Module
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import pbis.bike.finder.data.local.DeviceLocationProvider
+import pbis.bike.finder.data.local.PaymentKeyStore
+import pbis.bike.finder.data.local.PaymentKeys
 import pbis.bike.finder.data.local.SystemLocationProvider
 import pbis.bike.finder.data.local.TokenStorage
 import pbis.bike.finder.data.local.TokenStore
@@ -27,4 +29,8 @@ abstract class StorageModule {
     @Binds
     @Singleton
     abstract fun bindDeviceLocationProvider(impl: SystemLocationProvider): DeviceLocationProvider
+
+    @Binds
+    @Singleton
+    abstract fun bindPaymentKeys(impl: PaymentKeyStore): PaymentKeys
 }

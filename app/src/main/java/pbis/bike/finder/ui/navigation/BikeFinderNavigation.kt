@@ -15,6 +15,7 @@ import pbis.bike.finder.ui.bikes.BikesScreen
 import pbis.bike.finder.ui.dashboard.DashboardScreen
 import pbis.bike.finder.ui.login.LoginScreen
 import pbis.bike.finder.ui.reporttheft.ReportTheftScreen
+import pbis.bike.finder.ui.subscription.SubscriptionScreen
 
 /**
  * Rutas de la app, tipadas.
@@ -114,13 +115,11 @@ fun BikeFinderNavHost(
                 onAddBike = { navController.navigate(Route.AddBike) },
                 onMyBikes = { navController.navigate(Route.MyBikes) },
                 onUpdateComponents = { navController.navigate(Route.UpdateComponents(it)) },
-                // En el front web el robo entra por el plan de búsqueda, que es
-                // pago, y recién después por la denuncia. Acá va directo a la
-                // denuncia mientras `Subscription` siga siendo un placeholder:
-                // dejarlo en el orden final haría la denuncia inalcanzable.
-                // Cuando exista el plan, este destino vuelve a ser
-                // `Route.Subscription(it)` y la denuncia no se toca.
-                onReportTheft = { navController.navigate(Route.ReportTheft(it)) },
+                // El robo entra por el plan de búsqueda, que es pago, y recién
+                // después por la denuncia — igual que el front web, donde
+                // `dashboard.js` manda a `suscripcion.html` y nunca al
+                // formulario.
+                onReportTheft = { navController.navigate(Route.Subscription(it)) },
             )
         }
         composable<Route.MyBikes> {
@@ -146,7 +145,22 @@ fun BikeFinderNavHost(
             )
         }
         composable<Route.UpdateComponents> { PlaceholderScreen("Actualizar componentes") }
-        composable<Route.Subscription> { PlaceholderScreen("Plan de búsqueda") }
+        composable<Route.Subscription> { entry ->
+            val route = entry.toRoute<Route.Subscription>()
+            SubscriptionScreen(
+                bikeId = route.bikeId,
+                // El plan sale del back stack al pagar: "atrás" desde la
+                // denuncia no puede volver a una pantalla de pago cuyo cobro ya
+                // ocurrió. El plan viaja a la denuncia porque el front web lo
+                // arrastra en la query.
+                onPaid = { plan ->
+                    navController.navigate(Route.ReportTheft(route.bikeId, plan.name)) {
+                        popUpTo<Route.Subscription> { inclusive = true }
+                    }
+                },
+                onBack = { navController.popBackStack() },
+            )
+        }
         composable<Route.ReportTheft> { entry ->
             val route = entry.toRoute<Route.ReportTheft>()
             ReportTheftScreen(

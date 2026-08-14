@@ -76,6 +76,10 @@ interface PaymentApi {
         @Header("X-Idempotency-Key") idempotencyKey: String,
         @Body body: CreatePaymentRequestDto,
     ): PaymentResponseDto
+
+    /** Estado actual del pago. Es lo que permite salir de `PROCESSING`. */
+    @GET("api/v1/payments/{id}")
+    suspend fun payment(@Path("id") paymentId: String): PaymentResponseDto
 }
 
 /** notification-service. */
