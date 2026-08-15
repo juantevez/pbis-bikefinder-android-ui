@@ -27,8 +27,8 @@ import pbis.bike.finder.data.repository.GeoRepository
 import pbis.bike.finder.data.repository.GeocodingRepository
 import pbis.bike.finder.data.repository.ResolvedAddress
 import pbis.bike.finder.data.repository.TheftRepository
+import pbis.bike.finder.ui.common.foldForMatch
 import pbis.bike.finder.ui.common.toUserMessage
-import java.text.Normalizer
 import javax.inject.Inject
 
 private const val GEO_ERROR = "No se pudo cargar la lista de lugares."
@@ -63,12 +63,6 @@ internal fun List<LocalityFullDto>.bestMatch(
 
     return inProvince.singleOrNull()
 }
-
-/** Normaliza para comparar: sin acentos, sin mayúsculas, sin espacios de más. */
-private fun String.foldForMatch(): String =
-    Normalizer.normalize(trim(), Normalizer.Form.NFD)
-        .replace(Regex("\\p{Mn}+"), "")
-        .lowercase()
 
 /** Tipos de vía que entiende el backend, con su etiqueta para la UI. */
 enum class StreetType(val apiValue: String, val label: String) {

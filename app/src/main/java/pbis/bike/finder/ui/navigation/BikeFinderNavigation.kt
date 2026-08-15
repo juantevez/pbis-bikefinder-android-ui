@@ -14,6 +14,7 @@ import pbis.bike.finder.ui.addbike.AddBikeScreen
 import pbis.bike.finder.ui.bikes.BikesScreen
 import pbis.bike.finder.ui.dashboard.DashboardScreen
 import pbis.bike.finder.ui.login.LoginScreen
+import pbis.bike.finder.ui.profile.ProfileScreen
 import pbis.bike.finder.ui.reports.MyReportsScreen
 import pbis.bike.finder.ui.reporttheft.ReportTheftScreen
 import pbis.bike.finder.ui.subscription.SubscriptionScreen
@@ -126,6 +127,7 @@ fun BikeFinderNavHost(
                 // formulario.
                 onReportTheft = { navController.navigate(Route.Subscription(it)) },
                 onMyReports = { navController.navigate(Route.MyReports) },
+                onProfile = { navController.navigate(Route.Profile) },
             )
         }
         composable<Route.MyBikes> {
@@ -186,7 +188,9 @@ fun BikeFinderNavHost(
         }
         composable<Route.TipsList> { PlaceholderScreen("Pistas recibidas") }
         composable<Route.TipDetail> { PlaceholderScreen("Detalle de pista") }
-        composable<Route.Profile> { PlaceholderScreen("Perfil") }
+        composable<Route.Profile> {
+            ProfileScreen(onBack = { navController.popBackStack() })
+        }
         composable<Route.TipForm> { PlaceholderScreen("Reportar avistamiento") }
         composable<Route.Conversation> { PlaceholderScreen("Conversación") }
     }

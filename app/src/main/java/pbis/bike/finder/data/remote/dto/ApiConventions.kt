@@ -108,6 +108,13 @@ fun String.toBigDecimalAmount(): BigDecimal = BigDecimal(this)
  * viene conviene ramificar por ahí y no por el texto de `message`, que está en
  * español y puede cambiar sin aviso.
  *
+ * Hay una **tercera** forma, y es de un solo servicio: notification-service
+ * responde `ProblemDetail` (RFC 7807), donde el motivo viaja en `detail` y no en
+ * `message`. El front web necesitó una función aparte para leerlo
+ * (`describeNotifError` en `perfil.js`); acá alcanza con declarar el campo, y
+ * [userMessage] lo prefiere cuando viene. Sin esto, un 400 explicando que la
+ * cuenta no tiene email asociado se mostraría como un texto genérico.
+ *
  * Al usuario se le muestra sólo la primera frase de `message`: el resto es
  * detalle técnico (host que no resuelve, timeout, status upstream) que sirve
  * para diagnosticar y no para leer en un toast.
@@ -123,14 +130,16 @@ data class ApiErrorDto(
     val code: String? = null,
     val status: Int? = null,
     val message: String? = null,
+    /** `ProblemDetail` de notification-service. Ausente en el resto. */
+    val detail: String? = null,
     val timestamp: String? = null,
     val retry: String? = null,
     val exception: String? = null,
     val rootCause: String? = null,
 ) {
-    /** Primera oración de `message`, que es lo único que se le muestra al usuario. */
+    /** Primera oración del motivo, que es lo único que se le muestra al usuario. */
     val userMessage: String?
-        get() = message?.let {
+        get() = (detail ?: message)?.let {
             val cut = it.indexOf(". ")
             // Corta en punto-espacio y no en cualquier punto: si no, un host como
             // "bucket.s3.us-east-2.amazonaws.com" queda partido al medio.

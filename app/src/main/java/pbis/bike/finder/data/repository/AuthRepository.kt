@@ -10,6 +10,7 @@ import pbis.bike.finder.data.remote.api.AuthApi
 import pbis.bike.finder.data.remote.dto.LoginRequestDto
 import pbis.bike.finder.data.remote.dto.LogoutRequestDto
 import pbis.bike.finder.data.remote.dto.RegisterRequestDto
+import pbis.bike.finder.data.remote.dto.UpdateProfileRequestDto
 import pbis.bike.finder.data.remote.dto.UserInfoDto
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -94,6 +95,25 @@ class AuthRepository @Inject constructor(
             if (it is ApiResult.Success) cachedProfile = it.data
         }
     }
+
+    /**
+     * Actualiza el perfil.
+     *
+     * `null` significa "no tocar" del lado del backend, así que quien construya
+     * el request tiene que distinguir "el usuario borró el campo" de "el usuario
+     * no lo tocó". No se puede vaciar un campo desde acá; el front web tampoco
+     * puede, y es una limitación del contrato, no de este método.
+     *
+     * Refresca el cache con lo que devolvió el servidor y no con lo que se
+     * mandó: el backend normaliza —recorta espacios, valida el teléfono— y el
+     * dashboard lee este mismo cache para el nombre del encabezado. Mostrar ahí
+     * lo que se tipeó en vez de lo que se guardó es cómo se termina con dos
+     * pantallas diciendo cosas distintas del mismo dato.
+     */
+    suspend fun updateProfile(request: UpdateProfileRequestDto): ApiResult<UserInfoDto> =
+        apiCall(json) { api.updateProfile(request) }.also {
+            if (it is ApiResult.Success) cachedProfile = it.data
+        }
 
     /**
      * Cierra sesión.

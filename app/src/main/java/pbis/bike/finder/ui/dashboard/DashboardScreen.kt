@@ -37,7 +37,6 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import pbis.bike.finder.data.remote.dto.BicicletaResumenDto
-import pbis.bike.finder.ui.theme.ThemeToggle
 
 /**
  * Hub del usuario autenticado, equivalente a `dashboard.html` del front web.
@@ -57,6 +56,7 @@ fun DashboardScreen(
     onUpdateComponents: (String) -> Unit,
     onReportTheft: (String) -> Unit,
     onMyReports: () -> Unit,
+    onProfile: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: DashboardViewModel = hiltViewModel(),
 ) {
@@ -91,7 +91,12 @@ fun DashboardScreen(
                     }
                 },
                 actions = {
-                    ThemeToggle()
+                    // El selector de tema estuvo acá hasta que existió el perfil.
+                    // Ahora vive en su sección "Apariencia", igual que en el front
+                    // web: tres acciones en la barra ya son una de más, y el tema
+                    // no es algo que se toque seguido. En el login sigue estando a
+                    // la vista porque ahí no hay perfil al que entrar.
+                    TextButton(onClick = onProfile) { Text("Perfil") }
                     TextButton(onClick = viewModel::logout) { Text("Salir") }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
