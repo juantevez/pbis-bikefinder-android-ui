@@ -16,6 +16,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
@@ -460,7 +461,15 @@ private fun LocationSection(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onErrorContainer,
                     )
-                    TextButton(onClick = onRetryGeo) { Text("Reintentar") }
+                    // Mismo caso que la tarjeta de dirección, pero el que queda
+                    // ilegible es el tema claro: el dorado sobre el rojo pálido
+                    // del `errorContainer` da 1,7:1.
+                    TextButton(
+                        onClick = onRetryGeo,
+                        colors = ButtonDefaults.textButtonColors(
+                            contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                        ),
+                    ) { Text("Reintentar") }
                 }
             }
         }
@@ -594,9 +603,21 @@ private fun LocationSection(
                             modifier = Modifier.padding(top = 4.dp),
                         )
                     }
+                    // Un TextButton se pinta con `primary`, que acá es el mismo
+                    // dorado del `primaryContainer` que tiene debajo: 1,4:1 de
+                    // contraste, ilegible. Sobre un contenedor de color el texto
+                    // lo fija el rol `on…` que le corresponde, igual que el resto
+                    // de esta tarjeta.
+                    val onContainer = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
                     Row {
-                        TextButton(onClick = onApplyAddress) { Text("Usar esta dirección") }
-                        TextButton(onClick = onDiscardAddress) { Text("Descartar") }
+                        TextButton(onClick = onApplyAddress, colors = onContainer) {
+                            Text("Usar esta dirección")
+                        }
+                        TextButton(onClick = onDiscardAddress, colors = onContainer) {
+                            Text("Descartar")
+                        }
                     }
                 }
             }
