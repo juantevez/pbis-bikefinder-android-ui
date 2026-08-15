@@ -1,11 +1,13 @@
 package pbis.bike.finder.ui.login
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -27,8 +29,10 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import pbis.bike.finder.ui.theme.ThemeToggle
 
 @Composable
 fun LoginScreen(
@@ -43,6 +47,21 @@ fun LoginScreen(
     }
 
     Surface(modifier = modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+        // El selector va acá arriba y no en un paso previo al login: elegir el
+        // tema antes de poder entrar agrega fricción justo donde menos conviene,
+        // y es una decisión que se cambia de humor, no una sola vez en la vida.
+        // El mismo control se repite en el dashboard.
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(horizontal = 8.dp)
+                .zIndex(1f),
+            contentAlignment = Alignment.TopEnd,
+        ) {
+            ThemeToggle()
+        }
+
         Column(
             modifier = Modifier
                 .fillMaxSize()

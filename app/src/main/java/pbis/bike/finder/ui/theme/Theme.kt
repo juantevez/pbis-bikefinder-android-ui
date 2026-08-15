@@ -5,6 +5,33 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import pbis.bike.finder.data.local.ThemePreference
+
+/**
+ * El tema según lo que eligió el usuario.
+ *
+ * Es la entrada real de la app; la sobrecarga booleana de abajo queda para
+ * previews y tests, que quieren fijar un tema sin pasar por la preferencia.
+ */
+@Composable
+fun BikeFinderTheme(
+    preference: ThemePreference,
+    content: @Composable () -> Unit,
+) = BikeFinderTheme(darkTheme = preference.isDark(), content = content)
+
+/**
+ * Si esta preferencia pinta oscuro *ahora*.
+ *
+ * Es `@Composable` porque `SYSTEM` depende de la configuración del dispositivo, y
+ * eso puede cambiar mientras la app está abierta. Leerlo acá hace que la
+ * recomposición llegue sola cuando el usuario cambia el modo del teléfono.
+ */
+@Composable
+fun ThemePreference.isDark(): Boolean = when (this) {
+    ThemePreference.SYSTEM -> isSystemInDarkTheme()
+    ThemePreference.LIGHT -> false
+    ThemePreference.DARK -> true
+}
 
 /**
  * Tema de la app.

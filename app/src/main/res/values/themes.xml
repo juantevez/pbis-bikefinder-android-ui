@@ -1,5 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <style name="Theme.Pbis" parent="android:Theme.Material.Light.NoActionBar" />
+    <!--
+        El fondo de la ventana es lo que se ve entre que arranca el proceso y que
+        Compose pinta su primer frame. Con el default blanco, a un usuario en modo
+        oscuro la app le arrancaba con un destello blanco en cada apertura.
+
+        Sigue al modo del *sistema* vía `values-night`, no a la preferencia del
+        usuario: esto lo resuelve el sistema de recursos antes de que exista
+        código nuestro que pueda leer DataStore. Quien fuerce un tema contrario al
+        del teléfono va a ver un destello corto hasta el primer frame; arreglarlo
+        del todo pediría AppCompat sólo para `setDefaultNightMode`.
+    -->
+    <style name="Theme.Pbis" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/window_background</item>
+    </style>
 </resources>

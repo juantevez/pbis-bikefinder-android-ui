@@ -7,4 +7,7 @@
     <color name="teal_700">#FF018786</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+
+    <!-- `Cream` de `ui/theme/Color.kt`: el `background` del esquema claro. -->
+    <color name="window_background">#FFF5F0E8</color>
 </resources>

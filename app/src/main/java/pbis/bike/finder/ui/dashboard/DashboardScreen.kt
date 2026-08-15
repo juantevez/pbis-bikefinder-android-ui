@@ -37,6 +37,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import pbis.bike.finder.data.remote.dto.BicicletaResumenDto
+import pbis.bike.finder.ui.theme.ThemeToggle
 
 /**
  * Hub del usuario autenticado, equivalente a `dashboard.html` del front web.
@@ -90,6 +91,7 @@ fun DashboardScreen(
                     }
                 },
                 actions = {
+                    ThemeToggle()
                     TextButton(onClick = viewModel::logout) { Text("Salir") }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
