@@ -25,6 +25,18 @@ val Danger = Color(0xFFC0392B)
 val Success = Color(0xFF2E7D5B)
 val CardHoverLight = Color(0xFFEFE6D2)
 
+/**
+ * `--danger-dim` de la web —Danger al 8%— ya resuelto sobre [Cream].
+ *
+ * En CSS es un `rgba()` que el navegador compone contra lo que haya detrás. Acá
+ * se guarda el resultado plano porque un color translúcido en Compose se compone
+ * contra la superficie real, y estas cajas de error viven tanto sobre el fondo
+ * como sobre una tarjeta blanca: el mismo token daría dos colores distintos.
+ */
+val DangerContainerLight = Color(0xFFF1E1D9)
+val SuccessContainerLight = Color(0xFFD7DED2)
+val OnSuccessContainerLight = Color(0xFF14402E)
+
 // ── Oscuro ───────────────────────────────────────────────────────────────────
 val CreamDarkMode = Color(0xFF121212)
 val CreamDarkModeAlt = Color(0xFF1E1E1E)
@@ -35,3 +47,18 @@ val MutedDarkMode = Color(0xFFA09A95)
 val BorderDarkMode = Color(0xFF2A2A2A)
 val SurfaceDarkMode = Color(0xFF1E1E1E)
 val CardHoverDarkMode = Color(0xFF2A2A2A)
+
+/** `--panel-bg` de `theme-dark.css`. */
+val PanelDarkMode = Color(0xFF181818)
+
+/**
+ * Contenedores de error y de éxito en oscuro.
+ *
+ * No salen de la web: `theme-dark.css` no redefine `--danger`, así que el rojo
+ * queda igual que en claro y sobre un fondo casi negro se lee mal. Se aclara el
+ * texto y se oscurece el fondo, que es lo que hace Material 3 con estos pares.
+ */
+val DangerContainerDarkMode = Color(0xFF2A1512)
+val OnDangerContainerDarkMode = Color(0xFFE8A49B)
+val SuccessContainerDarkMode = Color(0xFF15302A)
+val OnSuccessContainerDarkMode = Color(0xFFA8D8C3)

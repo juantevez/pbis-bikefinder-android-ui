@@ -62,6 +62,19 @@ fun BikeFinderTheme(
     )
 }
 
+/**
+ * **Hay que declarar todos los roles, no sólo los que se usan a ojo.**
+ *
+ * Cualquier rol que quede sin definir cae al esquema *baseline* de Material 3,
+ * que es violeta. Durante un tiempo eso pasó sin que se notara en las pantallas
+ * armadas a mano —que nombran sus colores— pero sí en los componentes que eligen
+ * su superficie solos: los desplegables se pintaban lavanda con
+ * `surfaceContainer`, y el snackbar con `inverseSurface`. El síntoma aparece
+ * lejos del error, en un componente que nadie tocó.
+ *
+ * Los pares invertidos salen de `--invert-bg` / `--invert-fg` de la web, que es
+ * exactamente lo que M3 llama `inverseSurface` / `inverseOnSurface`.
+ */
 private val LightColors = lightColorScheme(
     primary = Gold,
     onPrimary = BlackInk,
@@ -69,17 +82,38 @@ private val LightColors = lightColorScheme(
     onPrimaryContainer = BlackInk,
     secondary = Charcoal,
     onSecondary = Cream,
+    secondaryContainer = CreamDark,
+    onSecondaryContainer = BlackInk,
+    tertiary = Success,
+    onTertiary = SurfaceLight,
+    tertiaryContainer = SuccessContainerLight,
+    onTertiaryContainer = OnSuccessContainerLight,
     background = Cream,
     onBackground = BlackInk,
     surface = SurfaceLight,
     onSurface = BlackInk,
     surfaceVariant = CreamDark,
     onSurfaceVariant = Muted,
+    surfaceDim = CreamDark,
+    surfaceBright = SurfaceLight,
+    // En claro hay una sola superficie elevada —la tarjeta blanca—, así que los
+    // tres niveles bajos son el mismo blanco a propósito: un menú tiene que
+    // leerse como una tarjeta y no como un tono intermedio inventado.
+    surfaceContainerLowest = SurfaceLight,
+    surfaceContainerLow = SurfaceLight,
+    surfaceContainer = SurfaceLight,
+    surfaceContainerHigh = CreamDark,
     surfaceContainerHighest = CardHoverLight,
+    inverseSurface = Charcoal,
+    inverseOnSurface = Cream,
+    inversePrimary = GoldDarkMode,
     outline = BorderLight,
+    outlineVariant = BorderLight,
     error = Danger,
     onError = SurfaceLight,
-    tertiary = Success,
+    errorContainer = DangerContainerLight,
+    onErrorContainer = Danger,
+    scrim = BlackInk,
 )
 
 private val DarkColors = darkColorScheme(
@@ -89,15 +123,33 @@ private val DarkColors = darkColorScheme(
     onPrimaryContainer = CreamDarkMode,
     secondary = CharcoalDarkMode,
     onSecondary = InkDarkMode,
+    secondaryContainer = CardHoverDarkMode,
+    onSecondaryContainer = InkDarkMode,
+    tertiary = Success,
+    onTertiary = InkDarkMode,
+    tertiaryContainer = SuccessContainerDarkMode,
+    onTertiaryContainer = OnSuccessContainerDarkMode,
     background = CreamDarkMode,
     onBackground = InkDarkMode,
     surface = SurfaceDarkMode,
     onSurface = InkDarkMode,
     surfaceVariant = CreamDarkModeAlt,
     onSurfaceVariant = MutedDarkMode,
+    surfaceDim = CreamDarkMode,
+    surfaceBright = CardHoverDarkMode,
+    surfaceContainerLowest = CharcoalDarkMode,
+    surfaceContainerLow = PanelDarkMode,
+    surfaceContainer = SurfaceDarkMode,
+    surfaceContainerHigh = CardHoverDarkMode,
     surfaceContainerHighest = CardHoverDarkMode,
+    inverseSurface = Cream,
+    inverseOnSurface = CreamDarkMode,
+    inversePrimary = Gold,
     outline = BorderDarkMode,
+    outlineVariant = BorderDarkMode,
     error = Danger,
     onError = InkDarkMode,
-    tertiary = Success,
+    errorContainer = DangerContainerDarkMode,
+    onErrorContainer = OnDangerContainerDarkMode,
+    scrim = CharcoalDarkMode,
 )
