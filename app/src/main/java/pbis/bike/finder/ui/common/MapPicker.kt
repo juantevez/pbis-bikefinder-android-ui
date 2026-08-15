@@ -1,13 +1,17 @@
 package pbis.bike.finder.ui.common
 
+import android.annotation.SuppressLint
 import android.preference.PreferenceManager
+import android.view.MotionEvent
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -41,6 +45,9 @@ private const val PLACED_ZOOM = 16.0
  * "elegiste una localidad, te llevo ahí", que es distinto de "marcaste el lugar
  * del robo": lo primero es navegación, lo segundo es un dato de la denuncia.
  */
+// El mapa no es un control con acción de click: el tap ya lo maneja
+// `MapEventsOverlay` y no hay un `performClick` que valga la pena declarar.
+@SuppressLint("ClickableViewAccessibility")
 @Composable
 fun MapPicker(
     latitude: Double?,
@@ -71,6 +78,35 @@ fun MapPicker(
             setMultiTouchControls(true)
             controller.setZoom(DEFAULT_ZOOM)
             controller.setCenter(DEFAULT_CENTER)
+
+            // El mapa vive dentro de un `verticalScroll`, y sin esto el scroll se
+            // queda con todos los gestos: arrastrar sobre el mapa desplazaba el
+            // formulario en vez de mover el mapa, y el pinch no llegaba a
+            // interpretarse nunca. Sólo quedaban los botones + y −.
+            //
+            // La causa es de osmdroid: su `MapView` no pide en ningún momento que
+            // el padre no intercepte —verificado sobre el 6.1.20—, así que apenas
+            // el gesto supera el touch slop, el contenedor lo reclama y el mapa
+            // recibe un CANCEL. Hay que pedirlo desde afuera.
+            //
+            // `AndroidView` reenvía este pedido al sistema de punteros de Compose,
+            // así que frena al `scrollable` igual que frenaría a un ViewGroup.
+            //
+            // Consecuencia buscada: mientras el dedo esté sobre el mapa la página
+            // no scrollea. Es el mismo trato que da el Leaflet del front web, y el
+            // que hace falta para que un gesto tenga un solo dueño.
+            setOnTouchListener { view, event ->
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN ->
+                        view.parent?.requestDisallowInterceptTouchEvent(true)
+
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL ->
+                        view.parent?.requestDisallowInterceptTouchEvent(false)
+                }
+                // Falso a propósito: esto no maneja el gesto, sólo decide quién
+                // puede robarlo. El que lo interpreta sigue siendo el mapa.
+                false
+            }
         }
     }
 
@@ -136,9 +172,28 @@ fun MapPicker(
     // recomposición, el usuario no podría desplazar el mapa — cada gesto se
     // desharía solo.
     val point = if (latitude != null && longitude != null) latitude to longitude else null
-    DisposableEffect(point ?: centerOn) {
-        (point ?: centerOn)?.let { (lat, lng) ->
+
+    // Elegir una localidad es navegación: mueve cámara y zoom, que es el atajo.
+    DisposableEffect(centerOn) {
+        centerOn?.let { (lat, lng) ->
             mapView.controller.animateTo(GeoPoint(lat, lng))
+            mapView.controller.setZoom(PLACED_ZOOM)
+        }
+        onDispose { }
+    }
+
+    // El punto sólo encuadra la primera vez —el que llega del GPS, o el de un
+    // borrador— y nunca más.
+    //
+    // Antes reencuadraba en cada cambio, y eso peleaba con el usuario: tocar el
+    // mapa o arrastrar el marcador cambia el punto, así que cada ajuste fino le
+    // devolvía la cámara a zoom 16. Con los gestos rotos casi no se notaba
+    // porque no había zoom propio que perder; con el pinch andando, sí.
+    var centeredOnPoint by remember { mutableStateOf(false) }
+    DisposableEffect(point) {
+        if (point != null && !centeredOnPoint) {
+            centeredOnPoint = true
+            mapView.controller.animateTo(GeoPoint(point.first, point.second))
             mapView.controller.setZoom(PLACED_ZOOM)
         }
         onDispose { }
