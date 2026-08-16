@@ -571,6 +571,25 @@ class ReportTheftViewModelTest {
     }
 
     @Test
+    fun `la franja horaria y la moneda viajan con el codigo del front web`() = runTest {
+        val api = FakeBicycleApi()
+        val sut = viewModel(api)
+        sut.start("bici-1")
+        advanceUntilIdle()
+
+        sut.selectLocality(1)
+        sut.setTimeSlot(TheftTimeSlot.AFTERNOON)
+        sut.setRewardOffered(true)
+        sut.setRewardAmount("5000")
+        sut.setRewardCurrency(RewardCurrency.USD)
+        sut.submit()
+        advanceUntilIdle()
+
+        assertEquals("AFTERNOON", api.lastReport?.theftTimeApprox)
+        assertEquals("USD", api.lastReport?.rewardCurrency)
+    }
+
+    @Test
     fun `sin recompensa no viaja monto ni moneda`() = runTest {
         val api = FakeBicycleApi()
         val sut = viewModel(api)

@@ -64,6 +64,27 @@ internal fun List<LocalityFullDto>.bestMatch(
     return inProvince.singleOrNull()
 }
 
+/**
+ * Franjas horarias del robo, con el mismo código que manda el front web.
+ *
+ * El backend guarda un texto libre de hasta 50 caracteres, así que acá podría ir
+ * cualquier cosa; se usan los códigos de la web para que las dos denuncias sean
+ * el mismo dato y no dos formas de escribir "a la tarde".
+ */
+enum class TheftTimeSlot(val apiValue: String, val label: String) {
+    EARLY_MORNING("EARLY_MORNING", "Madrugada (00:00 - 06:00)"),
+    MORNING("MORNING", "Mañana (06:00 - 12:00)"),
+    AFTERNOON("AFTERNOON", "Tarde (12:00 - 18:00)"),
+    EVENING("EVENING", "Noche (18:00 - 00:00)"),
+}
+
+/** Monedas de la recompensa. Las mismas tres que ofrece el front web. */
+enum class RewardCurrency(val apiValue: String, val label: String) {
+    ARS("ARS", "ARS $"),
+    USD("USD", "USD $"),
+    EUR("EUR", "EUR €"),
+}
+
 /** Tipos de vía que entiende el backend, con su etiqueta para la UI. */
 enum class StreetType(val apiValue: String, val label: String) {
     CALLE("CALLE", "Calle"),
@@ -79,7 +100,7 @@ data class ReportTheftUiState(
     // Detalles
     val theftDate: LocalDate = Clock.System.todayIn(TimeZone.currentSystemDefault()),
     val maxDate: LocalDate = Clock.System.todayIn(TimeZone.currentSystemDefault()),
-    val timeApprox: String = "",
+    val timeSlot: TheftTimeSlot? = null,
     val description: String = "",
 
     // Cascada geográfica
@@ -137,7 +158,7 @@ data class ReportTheftUiState(
     // Recompensa
     val rewardOffered: Boolean = false,
     val rewardAmount: String = "",
-    val rewardCurrency: String = "ARS",
+    val rewardCurrency: RewardCurrency = RewardCurrency.ARS,
 
     val submitting: Boolean = false,
     val formError: String? = null,
@@ -596,7 +617,7 @@ class ReportTheftViewModel @Inject constructor(
     // ── Campos ───────────────────────────────────────────────────────────────
 
     fun setDate(date: LocalDate) = _state.update { it.copy(theftDate = date) }
-    fun setTimeApprox(value: String) = _state.update { it.copy(timeApprox = value) }
+    fun setTimeSlot(value: TheftTimeSlot?) = _state.update { it.copy(timeSlot = value) }
     fun setDescription(value: String) = _state.update { it.copy(description = value) }
     fun setStreetType(value: StreetType?) = _state.update { it.copy(streetType = value) }
     fun setStreetName(value: String) = _state.update { it.copy(streetName = value) }
@@ -607,8 +628,12 @@ class ReportTheftViewModel @Inject constructor(
     fun setContactPublic(value: Boolean) = _state.update { it.copy(contactPublic = value) }
     fun setRewardOffered(value: Boolean) = _state.update { it.copy(rewardOffered = value) }
     fun setRewardAmount(value: String) = _state.update { it.copy(rewardAmount = value) }
-    fun setRewardCurrency(value: String) =
-        _state.update { it.copy(rewardCurrency = value.uppercase()) }
+    /**
+     * La moneda no puede quedar vacía: si hay recompensa hay que mandar alguna,
+     * así que un `null` del desplegable deja la que estaba.
+     */
+    fun setRewardCurrency(value: RewardCurrency?) =
+        _state.update { if (value == null) it else it.copy(rewardCurrency = value) }
 
     // ── Envío ────────────────────────────────────────────────────────────────
 
@@ -698,9 +723,6 @@ class ReportTheftViewModel @Inject constructor(
             )
         }
 
-        if (s.timeApprox.length > ReportTheftRequestDto.MAX_TIME_APPROX) {
-            put("hora", "Máximo ${ReportTheftRequestDto.MAX_TIME_APPROX} caracteres.")
-        }
         if (s.description.length > ReportTheftRequestDto.MAX_DESCRIPTION) {
             put("descripcion", "Máximo ${ReportTheftRequestDto.MAX_DESCRIPTION} caracteres.")
         }
@@ -730,15 +752,12 @@ class ReportTheftViewModel @Inject constructor(
                 value.precision() - value.scale() > 10 -> put("recompensa", "El monto es demasiado grande.")
                 value.scale() > 2 -> put("recompensa", "Como máximo dos decimales.")
             }
-            if (!ReportTheftRequestDto.CURRENCY_REGEX.matches(s.rewardCurrency)) {
-                put("moneda", "Tres letras, como ARS o USD.")
-            }
         }
     }
 
     private fun ReportTheftUiState.toRequest() = ReportTheftRequestDto(
         theftDate = theftDate,
-        theftTimeApprox = timeApprox.trim().ifBlank { null },
+        theftTimeApprox = timeSlot?.apiValue,
         theftLocation = buildLocation(),
         theftDescription = description.trim().ifBlank { null },
         contactPhone = contactPhone.trim().ifBlank { null },
@@ -746,7 +765,7 @@ class ReportTheftViewModel @Inject constructor(
         contactPublic = contactPublic,
         rewardOffered = rewardOffered,
         rewardAmount = if (rewardOffered) rewardAmount.trim().replace(',', '.') else null,
-        rewardCurrency = if (rewardOffered) rewardCurrency else null,
+        rewardCurrency = if (rewardOffered) rewardCurrency.apiValue else null,
     )
 
     /**

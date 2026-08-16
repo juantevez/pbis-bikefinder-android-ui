@@ -138,15 +138,13 @@ fun ReportTheftScreen(
                 error = state.fieldErrors["fecha"],
                 onDateChange = viewModel::setDate,
             )
-            OutlinedTextField(
-                value = state.timeApprox,
-                onValueChange = viewModel::setTimeApprox,
-                label = { Text("Hora aproximada") },
-                placeholder = { Text("Entre las 14 y las 16") },
-                isError = state.fieldErrors.containsKey("hora"),
-                supportingText = state.fieldErrors["hora"]?.let { { Text(it) } },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
+            Dropdown(
+                label = "Hora aproximada",
+                options = TheftTimeSlot.entries,
+                selected = state.timeSlot,
+                optionLabel = { it.label },
+                onSelect = viewModel::setTimeSlot,
+                placeholder = "No lo sé",
             )
             OutlinedTextField(
                 value = state.description,
@@ -309,14 +307,13 @@ fun ReportTheftScreen(
                         singleLine = true,
                         modifier = Modifier.weight(2f),
                     )
-                    OutlinedTextField(
-                        value = state.rewardCurrency,
-                        onValueChange = viewModel::setRewardCurrency,
-                        label = { Text("Moneda") },
-                        isError = state.fieldErrors.containsKey("moneda"),
-                        supportingText = state.fieldErrors["moneda"]?.let { { Text(it) } },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f),
+                    Dropdown(
+                        label = "Moneda",
+                        options = RewardCurrency.entries,
+                        selected = state.rewardCurrency,
+                        optionLabel = { it.label },
+                        onSelect = viewModel::setRewardCurrency,
+                        modifier = Modifier.weight(1.3f),
                     )
                 }
             }
