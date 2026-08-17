@@ -1,19 +1,14 @@
 package pbis.bike.finder.ui.theme
 
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.vectorResource
+import pbis.bike.finder.R
 import pbis.bike.finder.data.local.ThemePreference
 
 /**
@@ -40,48 +35,55 @@ val LocalThemeController = staticCompositionLocalOf {
 }
 
 /**
+ * La siguiente opción del ciclo, en el orden en que están declaradas:
+ * automático → claro → oscuro → automático.
+ *
+ * Se apoya en `entries` en vez de un `when` con los tres casos para que agregar
+ * una opción al enum no deje este ciclo saltándosela en silencio.
+ */
+private fun ThemePreference.next(): ThemePreference {
+    val options = ThemePreference.entries
+    return options[(ordinal + 1) % options.size]
+}
+
+/**
+ * El ícono de cada opción. Vive acá y no en el enum porque `ThemePreference` es
+ * de datos: no tiene por qué saber que existe una capa de UI.
+ */
+@Composable
+private fun ThemePreference.icon(): ImageVector = when (this) {
+    // Engranaje: "lo que diga la configuración del teléfono".
+    ThemePreference.SYSTEM -> ImageVector.vectorResource(R.drawable.ic_theme_system)
+    ThemePreference.LIGHT -> ImageVector.vectorResource(R.drawable.ic_theme_light)
+    ThemePreference.DARK -> ImageVector.vectorResource(R.drawable.ic_theme_dark)
+}
+
+/**
  * Selector de tema.
  *
- * Botón de texto que abre las tres opciones. No es un switch claro/oscuro porque
- * un switch tiene dos estados y acá hay tres — "automático" no es el punto medio
- * de nada, es una opción propia.
+ * Un solo botón que cicla entre las tres opciones: el ícono muestra cuál está
+ * activa y cada toque pasa a la siguiente. Antes era un menú desplegable con las
+ * tres etiquetas; para tres estados que se prueban a ojo, abrir un menú para
+ * elegir es más ceremonia que la que amerita una decisión cosmética.
  *
- * Dice "Tema" y no el valor actual: en la barra del dashboard, un botón que dice
- * "Automático" al lado de "Salir" se lee como una acción, no como un estado.
+ * El ciclo no se corta en claro/oscuro: "automático" queda dentro de la vuelta,
+ * así que se puede volver a él sin ir a buscarlo a otra pantalla.
+ *
+ * El `contentDescription` sí nombra el estado y lo que hace el toque: sin texto
+ * a la vista, es lo único que le queda a un lector de pantalla. La pantalla de
+ * perfil mantiene el selector con las tres etiquetas escritas, para quien
+ * prefiera elegir en vez de ciclar.
  */
 @Composable
 fun ThemeToggle(modifier: Modifier = Modifier) {
     val controller = LocalThemeController.current
-    var expanded by remember { mutableStateOf(false) }
+    val current = controller.preference
+    val next = current.next()
 
-    TextButton(onClick = { expanded = true }, modifier = modifier) {
-        Text("Tema")
-    }
-
-    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-        ThemePreference.entries.forEach { option ->
-            val selected = option == controller.preference
-            DropdownMenuItem(
-                text = {
-                    Text(
-                        text = option.label,
-                        // La opción activa se marca con peso y color, no con un
-                        // ícono de tilde: los íconos de brillo viven en
-                        // material-icons-extended y traerlo entero por un tilde
-                        // es varios MB de APK.
-                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                        color = if (selected) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurface
-                        },
-                    )
-                },
-                onClick = {
-                    expanded = false
-                    controller.onChange(option)
-                },
-            )
-        }
+    IconButton(onClick = { controller.onChange(next) }, modifier = modifier) {
+        Icon(
+            imageVector = current.icon(),
+            contentDescription = "Tema: ${current.label}. Tocar para cambiar a ${next.label}",
+        )
     }
 }
