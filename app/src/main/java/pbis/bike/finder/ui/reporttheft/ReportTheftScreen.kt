@@ -212,13 +212,15 @@ fun ReportTheftScreen(
             // Aviso, no error: la denuncia se puede presentar así. Lo que no
             // sirve es el cartel público, y eso no se nota mirando el PDF
             // privado —que sí muestra la calle—, así que hay que decirlo acá.
-            if (state.publicReportWithoutArea) {
+            if (state.faltaLocalidadConPunto) {
+                // Se explica acá, al lado de los desplegables, y no sólo al enviar:
+                // el usuario ya marcó el punto y cree que terminó con la ubicación.
                 Text(
-                    text = "El punto del mapa alcanza para denunciar, pero el cartel " +
-                        "público sólo muestra la localidad. Sin elegirla va a salir " +
-                        "sin ninguna zona.",
+                    text = "Falta la localidad. La provincia y la localidad de los PDF " +
+                        "salen de acá, no del punto del mapa: sin elegirla, el informe " +
+                        "para la policía sale sin jurisdicción.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = MaterialTheme.colorScheme.error,
                 )
             }
 

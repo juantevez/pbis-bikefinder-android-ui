@@ -247,7 +247,32 @@ class ReportTheftViewModelTest {
     }
 
     @Test
-    fun `el punto del telefono solo tambien alcanza`() = runTest {
+    fun `el punto del telefono viaja junto con la localidad`() = runTest {
+        val api = FakeBicycleApi()
+        val sut = viewModel(api, location = DevicePoint(-34.9214, -57.9544))
+        sut.start("bici-1")
+        advanceUntilIdle()
+
+        sut.useCurrentLocation()
+        advanceUntilIdle()
+        sut.selectLocality(42)
+        sut.submit()
+        advanceUntilIdle()
+
+        assertEquals(-34.9214, api.lastReport?.theftLocation?.latitude)
+        assertEquals(-57.9544, api.lastReport?.theftLocation?.longitude)
+        // "EXACT" está reservado a las pistas: acá el punto es del teléfono de
+        // quien denuncia, no del lugar donde se vio la bici.
+        assertEquals("APPROXIMATE", api.lastReport?.theftLocation?.precision)
+    }
+
+    @Test
+    fun `el punto solo ya no alcanza, la localidad es obligatoria`() = runTest {
+        // El backend acepta una denuncia con solo el punto, pero los dos PDF
+        // derivan provincia y localidad de localityId y no hay otra fuente: sin
+        // ella, el informe que se lleva a la policía sale sin jurisdicción.
+        // Medido en un e2e: un robo en Colegiales salió con la calle correcta y
+        // con "Provincia: -" y "Localidad: -".
         val api = FakeBicycleApi()
         val sut = viewModel(api, location = DevicePoint(-34.9214, -57.9544))
         sut.start("bici-1")
@@ -258,11 +283,11 @@ class ReportTheftViewModelTest {
         sut.submit()
         advanceUntilIdle()
 
-        assertEquals(-34.9214, api.lastReport?.theftLocation?.latitude)
-        assertEquals(-57.9544, api.lastReport?.theftLocation?.longitude)
-        // "EXACT" está reservado a las pistas: acá el punto es del teléfono de
-        // quien denuncia, no del lugar donde se vio la bici.
-        assertEquals("APPROXIMATE", api.lastReport?.theftLocation?.precision)
+        assertNull(api.lastReport)
+        assertNotNull(sut.state.value.fieldErrors["ubicacion"])
+        // El pedido nombra lo que falta: el usuario ya marcó el punto y cree que
+        // terminó con la ubicación.
+        assertTrue(sut.state.value.fieldErrors["ubicacion"]!!.contains("localidad"))
     }
 
     @Test
@@ -368,6 +393,9 @@ class ReportTheftViewModelTest {
         advanceUntilIdle()
 
         sut.setPoint(-34.9214, -57.9544)
+        // La localidad es obligatoria desde que los PDF dependen de ella: sin
+        // esto el envío se corta en la validación y el punto nunca viaja.
+        sut.selectLocality(42)
         sut.submit()
         advanceUntilIdle()
 
@@ -428,20 +456,22 @@ class ReportTheftViewModelTest {
     }
 
     @Test
-    fun `sin localidad se avisa que el cartel publico queda sin zona`() = runTest {
+    fun `con punto y sin localidad se avisa que falta, y la denuncia no es valida`() = runTest {
         val sut = viewModel()
         sut.start("bici-1")
         advanceUntilIdle()
 
         sut.setPoint(-34.9214, -57.9544)
 
-        // La denuncia es válida — el aviso no la bloquea.
-        assertTrue(sut.state.value.hasLocation)
-        assertTrue(sut.state.value.publicReportWithoutArea)
+        // Antes esto era una denuncia válida con un cartel público pobre. Ahora
+        // es un formulario incompleto: el aviso explica por qué, y la validación
+        // lo bloquea.
+        assertTrue(!sut.state.value.hasLocation)
+        assertTrue(sut.state.value.faltaLocalidadConPunto)
     }
 
     @Test
-    fun `elegir la localidad apaga el aviso del cartel publico`() = runTest {
+    fun `elegir la localidad apaga el aviso`() = runTest {
         val geoApi = FakeGeoApi(
             localities = {
                 LocalityListResponseDto(localities = listOf(LocalityDto(id = 9, name = "La Plata")))
@@ -456,7 +486,8 @@ class ReportTheftViewModelTest {
         advanceUntilIdle()
         sut.selectLocality(9)
 
-        assertTrue(!sut.state.value.publicReportWithoutArea)
+        assertTrue(!sut.state.value.faltaLocalidadConPunto)
+        assertTrue(sut.state.value.hasLocation)
     }
 
     @Test

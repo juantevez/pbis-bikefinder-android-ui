@@ -174,28 +174,39 @@ data class ReportTheftUiState(
     val pdfError: String? = null,
 ) {
     /**
-     * La regla de ubicación del backend, replicada tal cual.
+     * La localidad es obligatoria, y esta app es **más estricta que el backend**.
      *
-     * Alcanza con la localidad **o** con el par completo de coordenadas: son dos
-     * formas válidas de decir dónde. País, provincia y departamento no cuentan
-     * —no viajan en el payload— y la referencia libre tampoco. Si este criterio
-     * y el que arma el payload fueran distintos, el formulario dejaría pasar
-     * denuncias que el servidor rechaza.
+     * El servidor acepta una denuncia con la localidad **o** con el par de
+     * coordenadas; las dos son formas válidas de decir dónde, y este campo
+     * replicaba esa regla tal cual. El problema aparece después, en los PDF.
+     *
+     * Los dos documentos derivan provincia y localidad de `localityId`: no hay
+     * otra fuente. Una denuncia con el punto marcado y sin localidad genera un
+     * PDF **privado** —el que se lleva a la policía— con `Provincia: -` y
+     * `Localidad: -`, y un cartel público sin ninguna zona, porque ése además
+     * omite la calle a propósito por ser dato sensible. Medido en un e2e real:
+     * un robo en Colegiales salió con la calle correcta y sin jurisdicción
+     * ninguna. Una denuncia policial sin provincia ni localidad es casi
+     * inservible — es el dato que define qué comisaría interviene.
+     *
+     * Que el backend lo acepte no lo hace suficiente. El único momento en que
+     * alguien puede elegir la localidad es mientras carga el formulario; una vez
+     * presentada, el dato falta para siempre y ningún reintento lo repone.
      */
     val hasLocation: Boolean
-        get() = localityId != null || (latitude != null && longitude != null)
+        get() = localityId != null
 
     /**
-     * El punto alcanza para denunciar, pero no para el cartel público.
+     * Hay punto pero todavía no hay localidad.
      *
-     * El PDF público omite la calle a propósito —es dato sensible— y muestra
-     * sólo provincia, partido y localidad, los tres derivados de `localityId`.
-     * Sin localidad, entonces, el cartel que se reparte sale **sin ninguna
-     * ubicación**, mientras el PDF privado se ve completo y no delata el
-     * problema. Por eso el aviso es persistente y no un error de validación: la
-     * denuncia es válida, lo que queda inservible es el cartel.
+     * Es el estado que deja el mapa cuando el geocoding inverso resolvió la
+     * calle pero no encontró la localidad en el catálogo —pasa con los barrios
+     * de CABA, que no matchean por nombre—. Ya no describe una denuncia válida
+     * con un cartel pobre: describe un formulario al que le falta algo. Lo usa
+     * la pantalla para explicar **por qué** hace falta la localidad, antes de
+     * que el usuario choque contra el error al enviar.
      */
-    val publicReportWithoutArea: Boolean
+    val faltaLocalidadConPunto: Boolean
         get() = localityId == null && latitude != null && longitude != null
 }
 
@@ -759,7 +770,16 @@ class ReportTheftViewModel @Inject constructor(
         if (!s.hasLocation) {
             put(
                 "ubicacion",
-                "Decinos dónde fue: elegí la localidad o marcá el punto con tu ubicación.",
+                if (s.latitude != null) {
+                    // Ya marcó el punto: el pedido tiene que decir qué falta y por qué,
+                    // o se lee como que la app no reconoce lo que ya hizo.
+                    "Elegí la localidad. El punto del mapa no alcanza: la provincia y la " +
+                        "localidad del PDF salen de ahí, y sin ellas la denuncia va a la " +
+                        "policía sin jurisdicción."
+                } else {
+                    "Decinos dónde fue: elegí la localidad, o marcá el punto en el mapa y " +
+                        "confirmá la dirección."
+                },
             )
         }
 
