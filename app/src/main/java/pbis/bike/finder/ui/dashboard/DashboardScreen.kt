@@ -11,7 +11,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -19,6 +21,8 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -27,6 +31,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -37,6 +42,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import pbis.bike.finder.data.remote.dto.BicicletaResumenDto
+import pbis.bike.finder.data.remote.dto.BicycleStatus
 import pbis.bike.finder.ui.theme.ThemeToggle
 
 /**
@@ -71,12 +77,27 @@ fun DashboardScreen(
 
     // Qué acción está esperando que se elija una bici. Null = no hay selector
     // abierto. Se guarda la acción y no un booleano porque el mismo selector
-    // sirve a dos tarjetas con destinos distintos.
+    // sirve a tres tarjetas con destinos distintos.
     var pickerFor by remember { mutableStateOf<BikeAction?>(null) }
+
+    // La bici elegida para dar de baja, esperando confirmación. La baja es la
+    // única acción de la grilla que ejecuta algo acá mismo en vez de navegar.
+    var confirmingSale by remember { mutableStateOf<BicicletaResumenDto?>(null) }
+
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    // La baja no cambia de pantalla, así que sin aviso no se distingue de un tap
+    // que no hizo nada: lo único visible sería que un número del resumen bajó.
+    LaunchedEffect(state.deregistered) {
+        val message = state.deregistered ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(message)
+        viewModel.onDeregisteredShown()
+    }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
         containerColor = MaterialTheme.colorScheme.background,
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = {
@@ -174,7 +195,7 @@ fun DashboardScreen(
                     number = "06",
                     title = "Vendí mi bici",
                     subtitle = "Darla de baja del registro",
-                    enabled = false,
+                    onClick = { pickerFor = BikeAction.Sell },
                 )
             }
 
@@ -183,27 +204,128 @@ fun DashboardScreen(
     }
 
     pickerFor?.let { action ->
+        val elegibles = state.bicicletas.filter(action::admite)
+
         BikePicker(
             title = action.pickerTitle,
-            bikes = state.bicicletas,
+            bikes = elegibles,
             loading = state.loadingSummary,
             error = state.summaryError,
+            emptyMessage = action.emptyMessage,
             onDismiss = { pickerFor = null },
-            onPick = { bikeId ->
+            onPick = { bike ->
                 pickerFor = null
                 when (action) {
-                    BikeAction.UpdateComponents -> onUpdateComponents(bikeId)
-                    BikeAction.ReportTheft -> onReportTheft(bikeId)
+                    BikeAction.UpdateComponents -> onUpdateComponents(bike.id)
+                    BikeAction.ReportTheft -> onReportTheft(bike.id)
+                    // La baja no navega a ninguna parte: se confirma y se ejecuta.
+                    BikeAction.Sell -> confirmingSale = bike
                 }
+            },
+        )
+    }
+
+    confirmingSale?.let { bike ->
+        ConfirmSaleDialog(
+            bike = bike,
+            onConfirm = {
+                confirmingSale = null
+                viewModel.deregister(bike.id)
+            },
+            onDismiss = { confirmingSale = null },
+        )
+    }
+
+    state.deregisterError?.let { message ->
+        AlertDialog(
+            onDismissRequest = viewModel::dismissDeregisterError,
+            title = { Text("No se pudo dar de baja") },
+            text = { Text(message) },
+            confirmButton = {
+                TextButton(onClick = viewModel::dismissDeregisterError) { Text("Entendido") }
             },
         )
     }
 }
 
-/** Las dos tarjetas que necesitan saber sobre qué bicicleta se opera. */
-private enum class BikeAction(val pickerTitle: String) {
-    UpdateComponents("¿A qué bicicleta le cambiaste componentes?"),
-    ReportTheft("¿Qué bicicleta te robaron?"),
+/**
+ * Confirmación de la baja.
+ *
+ * Va con el nombre de la bici adentro y no un "¿estás seguro?" genérico: el
+ * selector muestra varias parecidas —dos bicis de la misma marca no son raras—
+ * y el paso anterior es un tap en una lista. Que el diálogo diga cuál es lo
+ * único que separa dar de baja la correcta de dar de baja la otra.
+ */
+@Composable
+private fun ConfirmSaleDialog(
+    bike: BicicletaResumenDto,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val nombre = listOfNotNull(bike.marca, bike.modelo)
+        .joinToString(" ")
+        .ifBlank { "esta bicicleta" }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("¿Dar de baja $nombre?") },
+        text = {
+            Text(
+                "Se saca el registro de tu cuenta. Si la vendiste, el nuevo dueño va a " +
+                    "poder reclamarla con el número de serie.",
+            )
+        },
+        confirmButton = { TextButton(onClick = onConfirm) { Text("Dar de baja") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
+    )
+}
+
+/**
+ * Las tarjetas que necesitan saber sobre qué bicicleta se opera.
+ *
+ * Cada una filtra por su cuenta porque las reglas del backend son distintas, y
+ * ofrecer una bici que el servidor va a rechazar es peor que no ofrecerla:
+ *
+ *  - **Robo**: sólo `ACTIVE`. `canBeReportedStolen()` lo exige, así que listar
+ *    una ya `STOLEN` invita a abrir una segunda denuncia sobre la misma bici.
+ *  - **Baja**: `ACTIVE` y `STOLEN`. `deactivate()` es la única transición
+ *    permitida desde cualquier estado, justamente para que a alguien a quien le
+ *    robaron la bici no le quede el registro colgado — y `STOLEN` no admite
+ *    ninguna otra edición.
+ *  - **Componentes**: sólo `ACTIVE`, que es el único estado editable.
+ *
+ * El agregador hoy sólo devuelve `ACTIVE` y `STOLEN`, así que en la práctica
+ * estos filtros casi no recortan nada. Están igual: el criterio vive acá y no en
+ * lo que el backend haya decidido mandar en esta versión.
+ */
+// `internal` y no `private`: el criterio de [BikeAction.admite] es una regla del
+// backend, no una decisión de layout, y se prueba sola.
+internal enum class BikeAction(val pickerTitle: String, val emptyMessage: String) {
+    UpdateComponents(
+        "¿A qué bicicleta le cambiaste componentes?",
+        "No tenés bicicletas activas para editar.",
+    ),
+    ReportTheft(
+        "¿Qué bicicleta te robaron?",
+        "No tenés bicicletas activas para denunciar.",
+    ),
+    Sell(
+        "¿Qué bicicleta querés dar de baja?",
+        "No tenés bicicletas para dar de baja.",
+    ),
+    ;
+
+    /** El `estado` del resumen llega como texto suelto: lo que no se reconoce no pasa. */
+    fun admite(bike: BicicletaResumenDto): Boolean {
+        val estado = bike.estado?.let { raw ->
+            BicycleStatus.entries.firstOrNull { it.name.equals(raw, ignoreCase = true) }
+        } ?: return false
+
+        return when (this) {
+            UpdateComponents, ReportTheft -> estado == BicycleStatus.ACTIVE
+            Sell -> estado == BicycleStatus.ACTIVE || estado == BicycleStatus.STOLEN
+        }
+    }
 }
 
 /**
@@ -335,8 +457,9 @@ private fun BikePicker(
     bikes: List<BicicletaResumenDto>,
     loading: Boolean,
     error: String?,
+    emptyMessage: String,
     onDismiss: () -> Unit,
-    onPick: (String) -> Unit,
+    onPick: (BicicletaResumenDto) -> Unit,
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -365,8 +488,11 @@ private fun BikePicker(
                     modifier = Modifier.padding(vertical = 24.dp),
                 )
 
+                // El texto lo pone la acción: "no tenés bicicletas" y "no tenés
+                // ninguna que sirva para esto" son cosas distintas, y con el
+                // filtro por estado la segunda es la que suele pasar.
                 bikes.isEmpty() -> Text(
-                    text = "Todavía no tenés bicicletas registradas.",
+                    text = emptyMessage,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(vertical = 24.dp),
@@ -377,7 +503,7 @@ private fun BikePicker(
                 // modal pelea con el gesto de arrastre de la hoja.
                 else -> Column(Modifier.padding(vertical = 8.dp)) {
                     bikes.forEach { bike ->
-                        BikeRow(bike = bike, onClick = { onPick(bike.id) })
+                        BikeRow(bike = bike, onClick = { onPick(bike) })
                     }
                 }
             }

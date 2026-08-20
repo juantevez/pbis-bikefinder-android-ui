@@ -45,6 +45,21 @@ class BicycleRepository @Inject constructor(
     suspend fun bicycle(id: String): ApiResult<BicycleDto> =
         apiCall(json) { api.detail(id) }
 
+    /**
+     * Baja del registro: la vendiste, o dejó de ser tuya.
+     *
+     * `DELETE` en la URL, pero del lado del backend es un `deactivate()`, no un
+     * borrado: la bici sigue existiendo con otro estado. Eso es lo que permite
+     * que el nuevo dueño la reclame después con el número de serie, y es también
+     * la razón por la que se puede dar de baja una bici **robada** — es la única
+     * transición permitida desde cualquier estado, para que a alguien a quien le
+     * robaron no le quede el registro colgado para siempre.
+     *
+     * No devuelve cuerpo: ver [orThrow].
+     */
+    suspend fun deregister(id: String): ApiResult<Unit> =
+        apiCall(json) { api.delete(id).orThrow() }
+
     suspend fun registerFromCatalog(
         body: RegisterFromCatalogRequestDto,
     ): ApiResult<BicycleDto> = apiCall(json) { api.registerFromCatalog(body) }
