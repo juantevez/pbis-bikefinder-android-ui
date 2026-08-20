@@ -17,6 +17,7 @@ retrofitKotlinxConverter = "1.0.0"
 hilt = "2.60.1"
 hiltNavigationCompose = "1.2.0"
 ksp = "2.2.10-2.0.2"
+kover = "0.9.9"
 datastore = "1.1.1"
 navigationCompose = "2.8.5"
 lifecycleViewmodelCompose = "2.8.7"
@@ -66,4 +67,5 @@ kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "ko
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 hilt = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
+kover = { id = "org.jetbrains.kotlinx.kover", version.ref = "kover" }
 

@@ -4,6 +4,7 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ksp)
     alias(libs.plugins.hilt)
+    alias(libs.plugins.kover)
 }
 
 android {
@@ -114,4 +115,47 @@ dependencies {
     androidTestImplementation(libs.androidx.junit)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     debugImplementation(libs.androidx.compose.ui.tooling)
+}
+
+/**
+ * Cobertura de los tests unitarios.
+ *
+ * Kover crea una tarea por variante de Android; la util es la de debug, que es
+ * donde corren los tests: `./gradlew :app:koverHtmlReportDebug` para el reporte
+ * navegable, `koverLogDebug` para el numero por consola.
+ *
+ * Lo que se excluye no es para inflar el numero: es codigo que nadie escribio
+ * y que nadie puede testear. Hilt genera fabricas e inyectores por cada
+ * @Inject, el compilador de Compose genera ComposableSingletons por cada lambda
+ * de UI, y kotlinx.serialization genera un serializer por cada @Serializable.
+ * Contarlos como "sin cubrir" no dice nada sobre el proyecto y esconde lo que
+ * si importa.
+ */
+kover {
+    reports {
+        filters {
+            excludes {
+                classes(
+                    // Hilt / Dagger
+                    "*.Hilt_*",
+                    "*_Factory",
+                    "*_Factory\$*",
+                    "*_MembersInjector",
+                    "*_HiltModules*",
+                    "*.Dagger*",
+                    "hilt_aggregated_deps.*",
+                    "dagger.hilt.*",
+                    // Compose
+                    "*ComposableSingletons*",
+                    "*_ComposableKt*",
+                    // kotlinx.serialization
+                    "*\$\$serializer",
+                    // Android
+                    "*.BuildConfig",
+                    "*.R",
+                    "*.R\$*",
+                )
+            }
+        }
+    }
 }
