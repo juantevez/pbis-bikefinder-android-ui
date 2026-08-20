@@ -46,10 +46,12 @@ import pbis.bike.finder.data.remote.dto.LogoutRequestDto
 import pbis.bike.finder.data.remote.dto.PdfGeneratedDto
 import pbis.bike.finder.data.remote.dto.RefreshTokenRequestDto
 import pbis.bike.finder.data.remote.dto.RegisterRequestDto
+import pbis.bike.finder.data.remote.dto.ReportStatus
 import pbis.bike.finder.data.remote.dto.ReportTheftRequestDto
 import pbis.bike.finder.data.remote.dto.RequestPasswordResetDto
 import pbis.bike.finder.data.remote.dto.ResendVerificationDto
 import pbis.bike.finder.data.remote.dto.TheftReportDto
+import pbis.bike.finder.data.remote.dto.TheftReportListResponseDto
 import pbis.bike.finder.data.remote.dto.UpdateProfileRequestDto
 import pbis.bike.finder.data.remote.dto.UserInfoDto
 import pbis.bike.finder.data.remote.dto.VerifyEmailDto
@@ -134,7 +136,16 @@ class ReportTheftViewModelTest {
     private class FakeTheftApi(
         var pdf: () -> PdfGeneratedDto = { PdfGeneratedDto(presignedUrl = "https://s3/pdf") },
     ) : StubTheftReportApi() {
+        /** Las denuncias que el backend ya tiene. Por defecto, ninguna. */
+        var reports: List<TheftReportDto> = emptyList()
+        var myReportsCalls = 0
+
         override suspend fun generatePdf(reportId: String) = pdf()
+
+        override suspend fun myReports(): TheftReportListResponseDto {
+            myReportsCalls++
+            return TheftReportListResponseDto(reports = reports, total = reports.size)
+        }
     }
 
     private class FakeLocationProvider(var point: DevicePoint?) : DeviceLocationProvider {
@@ -705,6 +716,126 @@ class ReportTheftViewModelTest {
         assertNotNull(state.formError)
         assertNull(state.createdReportId)
         assertTrue(!state.submitting)
+    }
+
+    // ── Envio ambiguo: el 503 con la denuncia ya creada ──────────────────────
+
+    @Test
+    fun `un 503 con la denuncia ya creada se resuelve como exito`() = runTest {
+        // El caso medido en un e2e real: geoposicion tardo 16s, el gateway corta
+        // a los 10 y devuelve 503, pero el backend commitea la denuncia antes de
+        // sus pasos best-effort — la denuncia quedo hecha.
+        val bicycleApi = FakeBicycleApi()
+        bicycleApi.reportResponse = { throw httpError(503) }
+        val theftApi = FakeTheftApi().apply {
+            reports = listOf(
+                TheftReportDto(id = "reporte-9", bicycleId = "bici-1", status = ReportStatus.ACTIVE),
+            )
+        }
+
+        val sut = viewModel(bicycleApi, theftApi)
+        sut.start("bici-1")
+        advanceUntilIdle()
+
+        sut.selectLocality(1)
+        sut.submit()
+        advanceUntilIdle()
+
+        val state = sut.state.value
+        // No se le muestra un error por algo que salio bien.
+        assertNull(state.formError)
+        assertEquals("reporte-9", state.createdReportId)
+    }
+
+    @Test
+    fun `un duplicado rechazado tampoco se muestra como error`() = runTest {
+        // Reintentar despues del 503 devolvia "An active theft report already
+        // exists for this bicycle": en ingles, en rojo, describiendo como falla
+        // algo que en realidad fue un exito.
+        val bicycleApi = FakeBicycleApi()
+        bicycleApi.reportResponse = { throw httpError(409) }
+        val theftApi = FakeTheftApi().apply {
+            reports = listOf(
+                TheftReportDto(id = "reporte-9", bicycleId = "bici-1", status = ReportStatus.ACTIVE),
+            )
+        }
+
+        val sut = viewModel(bicycleApi, theftApi)
+        sut.start("bici-1")
+        advanceUntilIdle()
+
+        sut.selectLocality(1)
+        sut.submit()
+        advanceUntilIdle()
+
+        assertEquals("reporte-9", sut.state.value.createdReportId)
+        assertNull(sut.state.value.formError)
+    }
+
+    @Test
+    fun `si de verdad no se creo nada, el error se muestra`() = runTest {
+        val bicycleApi = FakeBicycleApi()
+        bicycleApi.reportResponse = { throw httpError(503) }
+        val theftApi = FakeTheftApi()   // sin denuncias
+
+        val sut = viewModel(bicycleApi, theftApi)
+        sut.start("bici-1")
+        advanceUntilIdle()
+
+        sut.selectLocality(1)
+        sut.submit()
+        advanceUntilIdle()
+
+        assertNotNull(sut.state.value.formError)
+        assertNull(sut.state.value.createdReportId)
+        assertEquals(1, theftApi.myReportsCalls)
+    }
+
+    @Test
+    fun `una denuncia de OTRA bici no cuenta como propia`() = runTest {
+        val bicycleApi = FakeBicycleApi()
+        bicycleApi.reportResponse = { throw httpError(503) }
+        val theftApi = FakeTheftApi().apply {
+            reports = listOf(
+                TheftReportDto(id = "otra", bicycleId = "bici-2", status = ReportStatus.ACTIVE),
+            )
+        }
+
+        val sut = viewModel(bicycleApi, theftApi)
+        sut.start("bici-1")
+        advanceUntilIdle()
+
+        sut.selectLocality(1)
+        sut.submit()
+        advanceUntilIdle()
+
+        assertNull(sut.state.value.createdReportId)
+        assertNotNull(sut.state.value.formError)
+    }
+
+    @Test
+    fun `una denuncia ya cerrada no bloquea ni se confunde con la nueva`() = runTest {
+        // Una bici recuperada puede volver a robarse: sus denuncias FOUND o
+        // CLOSED no son la que se acaba de intentar.
+        val bicycleApi = FakeBicycleApi()
+        bicycleApi.reportResponse = { throw httpError(503) }
+        val theftApi = FakeTheftApi().apply {
+            reports = listOf(
+                TheftReportDto(id = "vieja", bicycleId = "bici-1", status = ReportStatus.FOUND),
+                TheftReportDto(id = "cerrada", bicycleId = "bici-1", status = ReportStatus.CLOSED),
+            )
+        }
+
+        val sut = viewModel(bicycleApi, theftApi)
+        sut.start("bici-1")
+        advanceUntilIdle()
+
+        sut.selectLocality(1)
+        sut.submit()
+        advanceUntilIdle()
+
+        assertNull(sut.state.value.createdReportId)
+        assertNotNull(sut.state.value.formError)
     }
 
     // ── Fixtures del catálogo de localidades ─────────────────────────────────

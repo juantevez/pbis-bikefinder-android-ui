@@ -19,6 +19,7 @@ import pbis.bike.finder.data.remote.dto.AdminLevel2Dto
 import pbis.bike.finder.data.remote.dto.CountryDto
 import pbis.bike.finder.data.remote.dto.LocalityDto
 import pbis.bike.finder.data.remote.dto.LocalityFullDto
+import pbis.bike.finder.data.remote.dto.ReportStatus
 import pbis.bike.finder.data.remote.dto.ReportTheftRequestDto
 import pbis.bike.finder.data.remote.dto.TheftLocationDto
 import pbis.bike.finder.data.repository.BicycleRepository
@@ -661,23 +662,62 @@ class ReportTheftViewModel @Inject constructor(
         _state.update { it.copy(submitting = true, formError = null, fieldErrors = emptyMap()) }
 
         viewModelScope.launch {
-            val result = theftRepository.reportTheft(id, current.toRequest())
-            when (result) {
+            when (val result = theftRepository.reportTheft(id, current.toRequest())) {
                 is ApiResult.Success -> _state.update {
                     it.copy(submitting = false, createdReportId = result.data.id)
                 }
 
-                else -> _state.update {
-                    it.copy(
-                        submitting = false,
-                        // El texto de un 503 ya avisa que la operación pudo
-                        // haberse completado igual: acá eso es literal, porque la
-                        // denuncia se persiste antes de los pasos best-effort.
-                        formError = result.toUserMessage("No se pudo registrar la denuncia."),
-                    )
+                // Antes de dar el envío por fallido hay que ir a ver si la
+                // denuncia quedó hecha igual. Ver [buscarDenunciaExistente].
+                else -> {
+                    val yaExistente = buscarDenunciaExistente(id)
+                    if (yaExistente != null) {
+                        _state.update { it.copy(submitting = false, createdReportId = yaExistente) }
+                    } else {
+                        _state.update {
+                            it.copy(
+                                submitting = false,
+                                formError = result.toUserMessage(
+                                    "No se pudo registrar la denuncia.",
+                                ),
+                            )
+                        }
+                    }
                 }
             }
         }
+    }
+
+    /**
+     * Busca una denuncia activa de esta bici, para resolver un envío ambiguo.
+     *
+     * Existe por un caso real y reproducible. El backend commitea la denuncia
+     * antes de sus pasos best-effort, y uno de ellos —registrar la ubicación en
+     * geoposicion— puede tardar más que el techo de espera del gateway. Cuando
+     * eso pasa, el gateway devuelve 503 y corta, **con la denuncia ya creada**.
+     * El usuario veía "puede haberse completado igual: verificá antes de
+     * repetirla", y al reintentar —que es lo que hace cualquiera— se comía un
+     * "An active theft report already exists for this bicycle": en inglés, en
+     * rojo, y describiendo como una falla algo que en realidad fue un éxito.
+     *
+     * Pedirle al usuario que verifique era hacerle hacer a mano algo que la app
+     * puede hacer sola, y en el peor momento posible: acaban de robarle la bici.
+     *
+     * Cubre los dos caminos con una sola consulta, porque el sintoma es el
+     * mismo: el 503 con la denuncia creada, y el rechazo por duplicado de un
+     * reintento anterior.
+     *
+     * @return el id de la denuncia activa, o null si de verdad no se creó nada.
+     */
+    private suspend fun buscarDenunciaExistente(bicycleId: String): String? {
+        val reportes = theftRepository.myReports()
+        if (reportes !is ApiResult.Success) return null
+
+        // ACTIVE y no "la última": una bici puede tener denuncias viejas ya
+        // cerradas o con la bici recuperada, y ésas no bloquean una nueva.
+        return reportes.data
+            .firstOrNull { it.bicycleId == bicycleId && it.status == ReportStatus.ACTIVE }
+            ?.id
     }
 
     /**
