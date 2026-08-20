@@ -1,7 +1,8 @@
 package pbis.bike.finder.data.remote
 
 import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
-import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
@@ -122,8 +123,16 @@ class BackendIntegrationTest {
      * **por IP**. La suite entera comparte una sola IP, así que sin esto los
      * últimos tests se comen un 429 que no dice nada sobre el código — dice que
      * los tests corren más rápido que un usuario.
+     *
+     * **Los tests de esta clase van con `runBlocking` y no con `runTest` por
+     * esto mismo.** `runTest` corre en tiempo virtual: `delay()` no espera, saltea
+     * el reloj y sigue de largo. Este `pace()` existía desde antes y no hacía
+     * absolutamente nada — el test del alta desde catálogo, que son cinco
+     * llamadas con cuatro pausas de 400ms, terminaba en 116 milisegundos y se
+     * comía un 429. El tiempo virtual está para que los tests NO esperen, que es
+     * justo lo contrario de lo que necesita un test contra un backend real.
      */
-    private suspend fun pace() = kotlinx.coroutines.delay(400)
+    private suspend fun pace() = delay(400)
 
     private suspend fun token(): String {
         cachedToken?.let { return it }
@@ -146,7 +155,7 @@ class BackendIntegrationTest {
     }
 
     @Test
-    fun `login real deserializa en AuthResponseDto`() = runTest {
+    fun `login real deserializa en AuthResponseDto`() = runBlocking {
         assumeTrue("Gateway no responde en $GATEWAY", backendUp)
         pace()
 
@@ -161,7 +170,7 @@ class BackendIntegrationTest {
     }
 
     @Test
-    fun `el refresh rota los dos tokens`() = runTest {
+    fun `el refresh rota los dos tokens`() = runBlocking {
         assumeTrue("Gateway no responde en $GATEWAY", backendUp)
         pace()
 
@@ -179,7 +188,7 @@ class BackendIntegrationTest {
     }
 
     @Test
-    fun `credenciales invalidas devuelven code y no error`() = runTest {
+    fun `credenciales invalidas devuelven code y no error`() = runBlocking {
         assumeTrue("Gateway no responde en $GATEWAY", backendUp)
         pace()
 
@@ -197,7 +206,7 @@ class BackendIntegrationTest {
     }
 
     @Test
-    fun `el listado de bicicletas deserializa con token real`() = runTest {
+    fun `el listado de bicicletas deserializa con token real`() = runBlocking {
         assumeTrue("Gateway no responde en $GATEWAY", backendUp)
         pace()
 
@@ -209,7 +218,7 @@ class BackendIntegrationTest {
     }
 
     @Test
-    fun `sin token el listado da 401`() = runTest {
+    fun `sin token el listado da 401`() = runBlocking {
         assumeTrue("Gateway no responde en $GATEWAY", backendUp)
         pace()
 
@@ -219,7 +228,7 @@ class BackendIntegrationTest {
     }
 
     @Test
-    fun `el catalogo es publico`() = runTest {
+    fun `el catalogo es publico`() = runBlocking {
         assumeTrue("Gateway no responde en $GATEWAY", backendUp)
         pace()
 
@@ -232,7 +241,7 @@ class BackendIntegrationTest {
     }
 
     @Test
-    fun `un servicio apagado da 503 y no rompe el parseo`() = runTest {
+    fun `un servicio apagado da 503 y no rompe el parseo`() = runBlocking {
         assumeTrue("Gateway no responde en $GATEWAY", backendUp)
         pace()
 
@@ -249,7 +258,7 @@ class BackendIntegrationTest {
     }
 
     @Test
-    fun `el alta desde catalogo crea una bici que aparece en el listado`() = runTest {
+    fun `el alta desde catalogo crea una bici que aparece en el listado`() = runBlocking {
         assumeTrue("Gateway no responde en $GATEWAY", backendUp)
         pace()
 
@@ -306,7 +315,7 @@ class BackendIntegrationTest {
     }
 
     @Test
-    fun `una foto sube por media-service y vuelve en el listado de fotos`() = runTest {
+    fun `una foto sube por media-service y vuelve en el listado de fotos`() = runBlocking {
         assumeTrue("Gateway no responde en $GATEWAY", backendUp)
         pace()
 
@@ -319,7 +328,7 @@ class BackendIntegrationTest {
         val antes = runCatching { api.photos(bikeId).total }.getOrElse {
             // media-service apagado: es parte del stack ampliado, no del mínimo.
             assumeTrue("media-service no responde", false)
-            return@runTest
+            return@runBlocking
         }
 
         val jpeg = jpegDePrueba()
