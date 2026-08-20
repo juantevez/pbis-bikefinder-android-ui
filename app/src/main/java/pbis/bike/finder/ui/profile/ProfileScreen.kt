@@ -64,6 +64,7 @@ import kotlinx.datetime.toLocalDateTime
 import pbis.bike.finder.data.local.ThemePreference
 import pbis.bike.finder.data.remote.dto.Gender
 import pbis.bike.finder.ui.common.Dropdown
+import pbis.bike.finder.ui.common.formatLongDate
 import pbis.bike.finder.ui.theme.LocalThemeController
 
 /**
@@ -252,7 +253,7 @@ private fun ViewCard(state: ProfileUiState, onEdit: () -> Unit) {
         DataRow("Nombre completo", profile.fullName)
         DataRow("Teléfono", profile.phoneNumber)
         DataRow("Género", Gender.fromApi(profile.gender)?.label)
-        DataRow("Fecha de nacimiento", profile.birthDate?.let { formatDate(it) })
+        DataRow("Fecha de nacimiento", profile.birthDate?.let { formatLongDate(it) })
 
         HorizontalDivider(Modifier.padding(vertical = 4.dp))
 
@@ -483,7 +484,7 @@ private fun BirthDateField(
     val today = remember { Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault()).date }
 
     OutlinedTextField(
-        value = date?.let { formatDate(it) } ?: "",
+        value = date?.let { formatLongDate(it) } ?: "",
         onValueChange = {},
         readOnly = true,
         enabled = false,
@@ -709,12 +710,3 @@ private val Gender.label: String
         Gender.ALIEN -> "Alien"
         Gender.PREFER_NOT_TO_SAY -> "Prefiero no decir"
     }
-
-/** "3 de marzo de 1990". Es el formato del front web (`toLocaleDateString('es-AR')`). */
-private fun formatDate(date: LocalDate): String {
-    val months = listOf(
-        "enero", "febrero", "marzo", "abril", "mayo", "junio",
-        "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
-    )
-    return "${date.dayOfMonth} de ${months[date.monthNumber - 1]} de ${date.year}"
-}

@@ -4,6 +4,7 @@ import kotlinx.serialization.json.Json
 import pbis.bike.finder.data.remote.dto.ApiErrorDto
 import pbis.bike.finder.data.remote.dto.RetryAdvice
 import retrofit2.HttpException
+import retrofit2.Response
 import java.io.IOException
 
 /**
@@ -90,4 +91,21 @@ private fun parseError(json: Json, e: HttpException): ApiErrorDto? = try {
     }
 } catch (_: Exception) {
     null
+}
+
+/**
+ * Hace que un `Response<Unit>` sin cuerpo falle como el resto de las llamadas.
+ *
+ * Es la trampa de Retrofit que hay que conocer: cuando el tipo de retorno es
+ * `Response<T>` en vez de `T`, un status de error **no** lanza [HttpException]
+ * —vuelve como una respuesta más, con `isSuccessful` en false—. Sin esto, los
+ * endpoints que no devuelven cuerpo (marcar leída, convertir, actualizar
+ * componentes) leerían un 403 o un 409 como éxito, y la pantalla le diría al
+ * usuario que la operación se hizo.
+ *
+ * Se relanza para que [apiCall] lo traduzca con el mismo parseo de cuerpo de
+ * error que todo lo demás.
+ */
+fun Response<Unit>.orThrow() {
+    if (!isSuccessful) throw HttpException(this)
 }

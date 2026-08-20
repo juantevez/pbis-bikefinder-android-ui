@@ -11,6 +11,7 @@ import kotlinx.serialization.Serializable
 import pbis.bike.finder.data.remote.SessionEvent
 import pbis.bike.finder.data.remote.SessionManager
 import pbis.bike.finder.ui.addbike.AddBikeScreen
+import pbis.bike.finder.ui.bikedetail.BikeDetailScreen
 import pbis.bike.finder.ui.bikes.BikesScreen
 import pbis.bike.finder.ui.dashboard.DashboardScreen
 import pbis.bike.finder.ui.login.LoginScreen
@@ -18,6 +19,9 @@ import pbis.bike.finder.ui.profile.ProfileScreen
 import pbis.bike.finder.ui.reports.MyReportsScreen
 import pbis.bike.finder.ui.reporttheft.ReportTheftScreen
 import pbis.bike.finder.ui.subscription.SubscriptionScreen
+import pbis.bike.finder.ui.tips.TipDetailScreen
+import pbis.bike.finder.ui.tips.TipsListScreen
+import pbis.bike.finder.ui.updatecomponents.UpdateComponentsScreen
 
 /**
  * Rutas de la app, tipadas.
@@ -136,7 +140,17 @@ fun BikeFinderNavHost(
                 onAddBike = { navController.navigate(Route.AddBike) },
             )
         }
-        composable<Route.BikeDetail> { PlaceholderScreen("Detalle de bicicleta") }
+        composable<Route.BikeDetail> { entry ->
+            val route = entry.toRoute<Route.BikeDetail>()
+            BikeDetailScreen(
+                bikeId = route.bikeId,
+                onUpdateComponents = { navController.navigate(Route.UpdateComponents(it)) },
+                // Igual que desde el dashboard: el robo entra por el plan de
+                // búsqueda, no por el formulario de denuncia.
+                onReportTheft = { navController.navigate(Route.Subscription(it)) },
+                onBack = { navController.popBackStack() },
+            )
+        }
         composable<Route.AddBike> {
             AddBikeScreen(
                 // Se vuelve a quien abrió el alta —el listado o el dashboard—
@@ -152,7 +166,20 @@ fun BikeFinderNavHost(
                 onBack = { navController.popBackStack() },
             )
         }
-        composable<Route.UpdateComponents> { PlaceholderScreen("Actualizar componentes") }
+        composable<Route.UpdateComponents> { entry ->
+            val route = entry.toRoute<Route.UpdateComponents>()
+            UpdateComponentsScreen(
+                bikeId = route.bikeId,
+                // Se vuelve con `popBackStack` y no a un destino fijo: la
+                // pantalla se abre hoy desde el dashboard, pero es la misma que
+                // va a colgar del detalle de la bici. Volver a quien la abrió es
+                // lo correcto en los dos casos — y es la lección que ya dejó el
+                // alta, donde apuntar a `MyBikes` fallaba en silencio si esa
+                // pantalla no estaba en el back stack.
+                onSaved = { navController.popBackStack() },
+                onBack = { navController.popBackStack() },
+            )
+        }
         composable<Route.Subscription> { entry ->
             val route = entry.toRoute<Route.Subscription>()
             SubscriptionScreen(
@@ -186,8 +213,22 @@ fun BikeFinderNavHost(
                 onBack = { navController.popBackStack() },
             )
         }
-        composable<Route.TipsList> { PlaceholderScreen("Pistas recibidas") }
-        composable<Route.TipDetail> { PlaceholderScreen("Detalle de pista") }
+        composable<Route.TipsList> { entry ->
+            val route = entry.toRoute<Route.TipsList>()
+            TipsListScreen(
+                reportId = route.reportId,
+                onTipClick = { navController.navigate(Route.TipDetail(route.reportId, it)) },
+                onBack = { navController.popBackStack() },
+            )
+        }
+        composable<Route.TipDetail> { entry ->
+            val route = entry.toRoute<Route.TipDetail>()
+            TipDetailScreen(
+                reportId = route.reportId,
+                tipId = route.tipId,
+                onBack = { navController.popBackStack() },
+            )
+        }
         composable<Route.Profile> {
             ProfileScreen(onBack = { navController.popBackStack() })
         }

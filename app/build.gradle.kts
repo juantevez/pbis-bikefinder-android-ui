@@ -83,6 +83,10 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.coil.compose)
+    // El fetcher de red de Coil no viene con coil-compose: sin esto, un modelo
+    // que es una URL http no carga y falla en silencio. Va sobre el OkHttp de la
+    // app para que las fotos viajen con el Bearer — ver provideImageLoader.
+    implementation(libs.coil.network.okhttp)
     // Mapa. Son los mismos tiles de OpenStreetMap que usa el Leaflet del front
     // web, y a diferencia de Google Maps no pide API key ni un proyecto con
     // facturación habilitada.

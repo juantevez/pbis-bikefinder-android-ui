@@ -3,11 +3,16 @@ package pbis.bike.finder.data.repository
 import kotlinx.serialization.json.Json
 import pbis.bike.finder.data.remote.ApiResult
 import pbis.bike.finder.data.remote.apiCall
+import pbis.bike.finder.data.remote.orThrow
 import pbis.bike.finder.data.remote.api.BicycleApi
 import pbis.bike.finder.data.remote.api.TheftReportApi
+import pbis.bike.finder.data.remote.dto.ConversationDto
 import pbis.bike.finder.data.remote.dto.PdfGeneratedDto
 import pbis.bike.finder.data.remote.dto.ReportTheftRequestDto
+import pbis.bike.finder.data.remote.dto.SendMessageRequestDto
 import pbis.bike.finder.data.remote.dto.TheftReportDto
+import pbis.bike.finder.data.remote.dto.TipDto
+import pbis.bike.finder.data.remote.dto.TipStatsDto
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -70,4 +75,40 @@ class TheftRepository @Inject constructor(
      */
     suspend fun unreadTipCounts(): ApiResult<Map<String, Int>> =
         apiCall(json) { theftApi.unreadTipsCount().porReporte }
+
+    // ── Pistas, lado dueño ───────────────────────────────────────────────────
+
+    /** Las pistas de una denuncia. Se desenvuelve el `{ tips, total, unread }`. */
+    suspend fun tips(reportId: String): ApiResult<List<TipDto>> =
+        apiCall(json) { theftApi.tips(reportId).tips }
+
+    suspend fun tipStats(reportId: String): ApiResult<TipStatsDto> =
+        apiCall(json) { theftApi.tipStats(reportId) }
+
+    suspend fun tip(reportId: String, tipId: String): ApiResult<TipDto> =
+        apiCall(json) { theftApi.tip(reportId, tipId) }
+
+    suspend fun tipConversation(reportId: String, tipId: String): ApiResult<ConversationDto> =
+        apiCall(json) { theftApi.tipConversation(reportId, tipId) }
+
+    suspend fun replyToTip(
+        reportId: String,
+        tipId: String,
+        message: String,
+    ): ApiResult<Unit> = apiCall(json) {
+        theftApi.replyToTip(reportId, tipId, SendMessageRequestDto(message))
+    }
+
+    /** Deja de contar en el badge de sin leer. */
+    suspend fun markTipRead(reportId: String, tipId: String): ApiResult<Unit> =
+        apiCall(json) { theftApi.markTipRead(reportId, tipId).orThrow() }
+
+    /**
+     * Convierte la pista en un avistamiento oficial de la denuncia.
+     *
+     * **Irreversible**, y por eso la pantalla la confirma antes: no hay endpoint
+     * que la deshaga.
+     */
+    suspend fun convertTipToSighting(reportId: String, tipId: String): ApiResult<Unit> =
+        apiCall(json) { theftApi.convertTipToSighting(reportId, tipId).orThrow() }
 }

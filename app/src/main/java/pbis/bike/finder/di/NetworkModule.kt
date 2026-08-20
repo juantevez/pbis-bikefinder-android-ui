@@ -1,9 +1,13 @@
 package pbis.bike.finder.di
 
+import android.content.Context
+import coil3.ImageLoader
+import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
@@ -188,6 +192,25 @@ object NetworkModule {
     @Singleton
     fun provideDashboardApi(client: OkHttpClient, json: Json): DashboardApi =
         retrofit(client, json).create(DashboardApi::class.java)
+
+    /**
+     * El ImageLoader de Coil, sobre el OkHttp autenticado de la app.
+     *
+     * Las fotos de las bicis no son recursos públicos: salen por
+     * `/api/files/download`, que pide el Bearer como cualquier otro endpoint. Al
+     * compartir el cliente, cada imagen viaja con el token, se le reescribe el
+     * host igual que al resto —así una foto sigue funcionando cuando el DHCP
+     * cambia la IP del backend— y un 401 dispara el mismo refresh que las demás
+     * llamadas, en vez de romper la galería hasta que el usuario vuelva a entrar.
+     */
+    @Provides
+    @Singleton
+    fun provideImageLoader(
+        @ApplicationContext context: Context,
+        client: OkHttpClient,
+    ): ImageLoader = ImageLoader.Builder(context)
+        .components { add(OkHttpNetworkFetcherFactory(callFactory = { client })) }
+        .build()
 
     /**
      * Nominatim, el único servicio que no es nuestro.
