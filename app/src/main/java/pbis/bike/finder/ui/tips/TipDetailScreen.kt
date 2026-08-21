@@ -276,9 +276,17 @@ private fun ContactosDelInformante(contactos: List<ContactoInformante>) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         contactos.forEach { UnContacto(it) }
 
+        // El aviso dice tres cosas, y las tres hacen falta. Que el dato no está
+        // verificado —lo dejó un desconocido—. Que escribirle sale del canal mediado
+        // de la plataforma, donde el intercambio queda registrado y no se expone nada
+        // del dueño. Y cuál es el camino que la app recomienda: la pista sirve para
+        // llevarla a la policía o al seguro, no para ir a buscar la bici por cuenta
+        // propia.
         Text(
-            text = "Lo dejó un tercero y no está verificado. Contactarlo queda bajo tu " +
-                "responsabilidad.",
+            text = "Lo dejó un tercero y no está verificado. Si le escribís por acá salís " +
+                "de la plataforma y queda bajo tu responsabilidad, igual que cualquier " +
+                "recompensa que ofrezcas. Lo más seguro es llevar la pista a la policía " +
+                "o al seguro.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
