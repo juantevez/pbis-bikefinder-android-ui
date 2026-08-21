@@ -48,6 +48,12 @@ data class BikeDetailUiState(
 
     /** La foto abierta a pantalla completa, o null. */
     val lightbox: BikePhoto? = null,
+
+    /** La baja en curso, para no mandarla dos veces desde el mismo tap. */
+    val deregistering: Boolean = false,
+    val deregisterError: String? = null,
+    /** La baja salió bien: la pantalla se cierra y vuelve al listado. */
+    val deregistered: Boolean = false,
 ) {
     val title: String
         get() = listOfNotNull(bike?.frame?.brandName, bike?.frame?.model)
@@ -62,6 +68,21 @@ data class BikeDetailUiState(
      * denuncia que el servidor va a rechazar.
      */
     val canReportTheft: Boolean get() = bike?.status == BicycleStatus.ACTIVE
+
+    /**
+     * La baja admite más estados que la denuncia.
+     *
+     * `deactivate()` es la única transición permitida desde cualquier estado,
+     * justamente para que a alguien a quien le robaron la bici no le quede el
+     * registro colgado — `STOLEN` no acepta ninguna otra edición. Es la misma
+     * regla que `puedeDarseDeBaja` aplica sobre el resumen del listado; acá se
+     * evalúa sobre el detalle, que trae el estado ya tipado.
+     */
+    val canDeregister: Boolean
+        get() = bike?.status == BicycleStatus.ACTIVE || bike?.status == BicycleStatus.STOLEN
+
+    /** El nombre que se le muestra al usuario en la confirmación. */
+    val bikeName: String get() = title
 }
 
 /**
@@ -157,6 +178,44 @@ class BikeDetailViewModel @Inject constructor(
             _state.update { it.copy(bikeTypeName = name) }
         }
     }
+
+    /**
+     * Da de baja la bici y avisa que la pantalla ya no tiene sentido.
+     *
+     * No recarga el detalle al terminar: lo que se estaba mirando dejó de estar
+     * en el registro del usuario. La pantalla se cierra y el listado, que
+     * recarga en cada `onResume`, muestra el estado nuevo.
+     *
+     * Este botón existe además del gesto de deslizar del listado, y no en su
+     * lugar. Un deslizamiento es invisible hasta que alguien lo descubre y no
+     * existe para un lector de pantalla: dejar la única forma de dar de baja
+     * detrás de un gesto la vuelve inalcanzable para parte de los usuarios.
+     */
+    fun deregister() {
+        val id = bicycleId ?: return
+        if (_state.value.deregistering) return
+
+        _state.update { it.copy(deregistering = true, deregisterError = null) }
+
+        viewModelScope.launch {
+            when (val result = bicycleRepository.deregister(id)) {
+                is ApiResult.Success -> _state.update {
+                    it.copy(deregistering = false, deregistered = true)
+                }
+
+                else -> _state.update {
+                    it.copy(
+                        deregistering = false,
+                        deregisterError = result.toUserMessage(
+                            "No se pudo dar de baja la bicicleta.",
+                        ),
+                    )
+                }
+            }
+        }
+    }
+
+    fun dismissDeregisterError() = _state.update { it.copy(deregisterError = null) }
 
     fun openLightbox(photo: BikePhoto) = _state.update { it.copy(lightbox = photo) }
 

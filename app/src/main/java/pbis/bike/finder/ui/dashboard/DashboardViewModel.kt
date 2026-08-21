@@ -11,7 +11,6 @@ import kotlinx.coroutines.launch
 import pbis.bike.finder.data.remote.ApiResult
 import pbis.bike.finder.data.remote.dto.BicicletaResumenDto
 import pbis.bike.finder.data.repository.AuthRepository
-import pbis.bike.finder.data.repository.BicycleRepository
 import pbis.bike.finder.data.repository.DashboardRepository
 import pbis.bike.finder.ui.common.isSafeToRetry
 import pbis.bike.finder.ui.common.toUserMessage
@@ -33,18 +32,11 @@ data class DashboardUiState(
     val canRetrySummary: Boolean = false,
     val userName: String? = null,
     val userEmail: String? = null,
-
-    /** La baja en curso, para no mandarla dos veces desde el mismo tap. */
-    val deregistering: Boolean = false,
-    val deregisterError: String? = null,
-    /** Aviso de baja hecha; la pantalla lo muestra y lo limpia. */
-    val deregistered: String? = null,
 )
 
 @HiltViewModel
 class DashboardViewModel @Inject constructor(
     private val dashboardRepository: DashboardRepository,
-    private val bicycleRepository: BicycleRepository,
     private val authRepository: AuthRepository,
 ) : ViewModel() {
 
@@ -106,46 +98,5 @@ class DashboardViewModel @Inject constructor(
                 }
             }
         }
-    }
-
-    /**
-     * Da de baja una bicicleta y vuelve a pedir el resumen.
-     *
-     * El resumen se recarga en vez de sacar la bici de la lista a mano: los tres
-     * números de arriba también cambian con la baja, y mantenerlos a mano acá
-     * sería replicar la cuenta que ya hace el agregador.
-     */
-    fun deregister(bicycleId: String) {
-        if (_state.value.deregistering) return
-
-        _state.update { it.copy(deregistering = true, deregisterError = null) }
-
-        viewModelScope.launch {
-            when (val result = bicycleRepository.deregister(bicycleId)) {
-                is ApiResult.Success -> {
-                    _state.update {
-                        it.copy(deregistering = false, deregistered = "Bicicleta dada de baja.")
-                    }
-                    loadSummary()
-                }
-
-                else -> _state.update {
-                    it.copy(
-                        deregistering = false,
-                        deregisterError = result.toUserMessage(
-                            "No se pudo dar de baja la bicicleta.",
-                        ),
-                    )
-                }
-            }
-        }
-    }
-
-    fun onDeregisteredShown() = _state.update { it.copy(deregistered = null) }
-
-    fun dismissDeregisterError() = _state.update { it.copy(deregisterError = null) }
-
-    fun logout() {
-        viewModelScope.launch { authRepository.logout() }
     }
 }

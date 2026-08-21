@@ -8,32 +8,31 @@ import pbis.bike.finder.data.remote.dto.BicicletaResumenDto
 /**
  * Qué bicicletas ofrece cada tarjeta del dashboard.
  *
- * La regla que importa es la asimetría entre robo y baja: una bici ya denunciada
- * **no** se puede volver a denunciar, pero **sí** se puede dar de baja. Ofrecer
- * la denuncia sobre una `STOLEN` lleva a una segunda denuncia sobre la misma
- * bici; no ofrecer la baja deja al que sufrió el robo con el registro colgado
- * para siempre, porque `STOLEN` no admite ninguna otra edición.
+ * Las dos que quedaron —denunciar y editar componentes— exigen lo mismo:
+ * `ACTIVE`. Ofrecerlas sobre una `STOLEN` invita a abrir una segunda denuncia
+ * sobre la misma bici, y `STOLEN` tampoco admite ediciones.
+ *
+ * La baja tenía la regla contraria y más laxa, y ya no vive acá: se fue con la
+ * tarjeta "Vendí mi bici" al listado. Su criterio se prueba en
+ * `PuedeDarseDeBajaTest`.
  */
 class BikeActionTest {
 
     private fun bike(estado: String?) = BicicletaResumenDto(id = "b1", estado = estado)
 
     @Test
-    fun `una bici activa sirve para las tres acciones`() {
+    fun `una bici activa sirve para las dos acciones`() {
         val activa = bike("ACTIVE")
 
         assertTrue(BikeAction.UpdateComponents.admite(activa))
         assertTrue(BikeAction.ReportTheft.admite(activa))
-        assertTrue(BikeAction.Sell.admite(activa))
     }
 
     @Test
-    fun `una bici robada se puede dar de baja pero no denunciar de nuevo`() {
+    fun `una bici robada no se denuncia de nuevo ni se edita`() {
         val robada = bike("STOLEN")
 
-        assertTrue(BikeAction.Sell.admite(robada))
         assertFalse(BikeAction.ReportTheft.admite(robada))
-        // STOLEN tampoco admite ediciones, así que componentes queda afuera.
         assertFalse(BikeAction.UpdateComponents.admite(robada))
     }
 
@@ -48,8 +47,8 @@ class BikeActionTest {
 
     @Test
     fun `el estado llega como texto suelto y se compara sin importar mayusculas`() {
-        assertTrue(BikeAction.Sell.admite(bike("active")))
-        assertTrue(BikeAction.Sell.admite(bike("Stolen")))
+        assertTrue(BikeAction.ReportTheft.admite(bike("active")))
+        assertTrue(BikeAction.UpdateComponents.admite(bike("Active")))
     }
 
     @Test

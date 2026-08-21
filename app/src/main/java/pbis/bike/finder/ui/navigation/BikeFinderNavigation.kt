@@ -138,6 +138,7 @@ fun BikeFinderNavHost(
             BikesScreen(
                 onBikeClick = { navController.navigate(Route.BikeDetail(it)) },
                 onAddBike = { navController.navigate(Route.AddBike) },
+                onProfile = { navController.navigate(Route.Profile) },
             )
         }
         composable<Route.BikeDetail> { entry ->

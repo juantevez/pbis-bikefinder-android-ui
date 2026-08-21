@@ -10,32 +10,35 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Card
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -43,7 +46,8 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import pbis.bike.finder.data.remote.dto.BicicletaResumenDto
 import pbis.bike.finder.data.remote.dto.BicycleStatus
-import pbis.bike.finder.ui.theme.ThemeToggle
+import pbis.bike.finder.ui.common.BikeFinderTopBar
+import pbis.bike.finder.ui.common.UserNameLine
 
 /**
  * Hub del usuario autenticado, equivalente a `dashboard.html` del front web.
@@ -54,8 +58,13 @@ import pbis.bike.finder.ui.theme.ThemeToggle
  * muestran el error y las tarjetas siguen andando. En el front web ese fallo se
  * llevaba puesta media pantalla, porque la lista de bicis alimentaba también los
  * selectores.
+ *
+ * El orden de las tarjetas no es el de la web ni el de antes. Arriba de todo va
+ * la denuncia de robo, que es lo único que se hace con urgencia y a menudo desde
+ * la vereda donde estaba la bici; el resto son tareas de escritorio y pueden
+ * esperar un scroll. Registrar una bici se fue al botón flotante: estaba dos
+ * veces en la misma pantalla, como tarjeta y como acción del listado.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DashboardScreen(
     onAddBike: () -> Unit,
@@ -77,64 +86,39 @@ fun DashboardScreen(
 
     // Qué acción está esperando que se elija una bici. Null = no hay selector
     // abierto. Se guarda la acción y no un booleano porque el mismo selector
-    // sirve a tres tarjetas con destinos distintos.
+    // sirve a dos tarjetas con destinos distintos.
     var pickerFor by remember { mutableStateOf<BikeAction?>(null) }
-
-    // La bici elegida para dar de baja, esperando confirmación. La baja es la
-    // única acción de la grilla que ejecuta algo acá mismo en vez de navegar.
-    var confirmingSale by remember { mutableStateOf<BicicletaResumenDto?>(null) }
-
-    val snackbarHostState = remember { SnackbarHostState() }
-
-    // La baja no cambia de pantalla, así que sin aviso no se distingue de un tap
-    // que no hizo nada: lo único visible sería que un número del resumen bajó.
-    LaunchedEffect(state.deregistered) {
-        val message = state.deregistered ?: return@LaunchedEffect
-        snackbarHostState.showSnackbar(message)
-        viewModel.onDeregisteredShown()
-    }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
         containerColor = MaterialTheme.colorScheme.background,
-        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text("BikeFinder")
-                        state.userName?.let {
-                            Text(
-                                text = it,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                },
-                actions = {
-                    // El selector volvió a la barra cuando dejó de ser un botón de
-                    // texto: lo que sobraba antes eran tres palabras en fila, no
-                    // tres acciones. Un ícono al lado de "Perfil" y "Salir" se lee
-                    // como lo que es —un interruptor— y no compite por el ancho.
-                    // El selector con las tres etiquetas escritas sigue en el
-                    // perfil, en "Apariencia", para quien prefiera elegir directo.
-                    ThemeToggle()
-                    TextButton(onClick = onProfile) { Text("Perfil") }
-                    TextButton(onClick = viewModel::logout) { Text("Salir") }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
-                    titleContentColor = MaterialTheme.colorScheme.onBackground,
-                ),
+            BikeFinderTopBar(
+                userName = state.userName,
+                userEmail = state.userEmail,
+                onProfile = onProfile,
             )
+        },
+        floatingActionButton = {
+            ExtendedFloatingActionButton(
+                onClick = onAddBike,
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+            ) {
+                Icon(Icons.Default.Add, contentDescription = null)
+                Text("Registrar bici", modifier = Modifier.padding(start = 8.dp))
+            }
         },
     ) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(16.dp),
+            // El padding inferior deja pasar el botón flotante: sin esto la
+            // última tarjeta queda tapada.
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 88.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            item { UserNameLine(state.userName) }
+
             item { StatsStrip(state, onRetry = viewModel::loadSummary) }
 
             item {
@@ -148,54 +132,36 @@ fun DashboardScreen(
             }
 
             item {
-                ActionCard(
-                    number = "01",
-                    title = "Registrar nueva bicicleta",
-                    subtitle = "Cargá marca, modelo, número de serie y fotos",
-                    onClick = onAddBike,
-                )
-            }
-            item {
-                ActionCard(
-                    number = "02",
-                    title = "Ver mis bicicletas",
-                    subtitle = "El listado completo, con su estado",
-                    onClick = onMyBikes,
-                )
-            }
-            item {
-                ActionCard(
-                    number = "03",
-                    title = "Actualizar componentes",
-                    subtitle = "Cambiaste ruedas, grupo o cuadro",
-                    onClick = { pickerFor = BikeAction.UpdateComponents },
-                )
-            }
-            item {
-                ActionCard(
-                    number = "04",
-                    title = "Me robaron la bici",
+                EmergencyCard(
                     // El flujo del front web pasa primero por el plan de búsqueda
                     // y recién después por la denuncia. No es un rodeo: el plan
-                    // define qué alcance tiene la búsqueda que se va a publicar.
+                    // define qué alcance tiene la búsqueda que se va a publicar,
+                    // y es lo único que justifica mandar a alguien apurado a una
+                    // pantalla de pago. Por eso ésta es la única tarjeta que
+                    // conserva su bajada.
                     subtitle = "Elegí el plan de búsqueda y hacé la denuncia",
                     onClick = { pickerFor = BikeAction.ReportTheft },
                 )
             }
             item {
                 ActionCard(
-                    number = "05",
-                    title = "Mis denuncias",
-                    subtitle = "Los PDF de cada denuncia y las pistas recibidas",
-                    onClick = onMyReports,
+                    icon = Icons.AutoMirrored.Filled.List,
+                    title = "Ver mis bicicletas",
+                    onClick = onMyBikes,
                 )
             }
             item {
                 ActionCard(
-                    number = "06",
-                    title = "Vendí mi bici",
-                    subtitle = "Darla de baja del registro",
-                    onClick = { pickerFor = BikeAction.Sell },
+                    icon = Icons.Default.Build,
+                    title = "Actualizar componentes",
+                    onClick = { pickerFor = BikeAction.UpdateComponents },
+                )
+            }
+            item {
+                ActionCard(
+                    icon = Icons.Default.Info,
+                    title = "Mis denuncias",
+                    onClick = onMyReports,
                 )
             }
 
@@ -218,66 +184,10 @@ fun DashboardScreen(
                 when (action) {
                     BikeAction.UpdateComponents -> onUpdateComponents(bike.id)
                     BikeAction.ReportTheft -> onReportTheft(bike.id)
-                    // La baja no navega a ninguna parte: se confirma y se ejecuta.
-                    BikeAction.Sell -> confirmingSale = bike
                 }
             },
         )
     }
-
-    confirmingSale?.let { bike ->
-        ConfirmSaleDialog(
-            bike = bike,
-            onConfirm = {
-                confirmingSale = null
-                viewModel.deregister(bike.id)
-            },
-            onDismiss = { confirmingSale = null },
-        )
-    }
-
-    state.deregisterError?.let { message ->
-        AlertDialog(
-            onDismissRequest = viewModel::dismissDeregisterError,
-            title = { Text("No se pudo dar de baja") },
-            text = { Text(message) },
-            confirmButton = {
-                TextButton(onClick = viewModel::dismissDeregisterError) { Text("Entendido") }
-            },
-        )
-    }
-}
-
-/**
- * Confirmación de la baja.
- *
- * Va con el nombre de la bici adentro y no un "¿estás seguro?" genérico: el
- * selector muestra varias parecidas —dos bicis de la misma marca no son raras—
- * y el paso anterior es un tap en una lista. Que el diálogo diga cuál es lo
- * único que separa dar de baja la correcta de dar de baja la otra.
- */
-@Composable
-private fun ConfirmSaleDialog(
-    bike: BicicletaResumenDto,
-    onConfirm: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    val nombre = listOfNotNull(bike.marca, bike.modelo)
-        .joinToString(" ")
-        .ifBlank { "esta bicicleta" }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("¿Dar de baja $nombre?") },
-        text = {
-            Text(
-                "Se saca el registro de tu cuenta. Si la vendiste, el nuevo dueño va a " +
-                    "poder reclamarla con el número de serie.",
-            )
-        },
-        confirmButton = { TextButton(onClick = onConfirm) { Text("Dar de baja") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
-    )
 }
 
 /**
@@ -288,11 +198,11 @@ private fun ConfirmSaleDialog(
  *
  *  - **Robo**: sólo `ACTIVE`. `canBeReportedStolen()` lo exige, así que listar
  *    una ya `STOLEN` invita a abrir una segunda denuncia sobre la misma bici.
- *  - **Baja**: `ACTIVE` y `STOLEN`. `deactivate()` es la única transición
- *    permitida desde cualquier estado, justamente para que a alguien a quien le
- *    robaron la bici no le quede el registro colgado — y `STOLEN` no admite
- *    ninguna otra edición.
  *  - **Componentes**: sólo `ACTIVE`, que es el único estado editable.
+ *
+ * La baja no está más acá: dejó de ser una tarjeta del dashboard y pasó a vivir
+ * sobre cada bici del listado — ver `puedeDarseDeBaja`, que es donde quedó su
+ * regla, más laxa que estas dos.
  *
  * El agregador hoy sólo devuelve `ACTIVE` y `STOLEN`, así que en la práctica
  * estos filtros casi no recortan nada. Están igual: el criterio vive acá y no en
@@ -309,10 +219,6 @@ internal enum class BikeAction(val pickerTitle: String, val emptyMessage: String
         "¿Qué bicicleta te robaron?",
         "No tenés bicicletas activas para denunciar.",
     ),
-    Sell(
-        "¿Qué bicicleta querés dar de baja?",
-        "No tenés bicicletas para dar de baja.",
-    ),
     ;
 
     /** El `estado` del resumen llega como texto suelto: lo que no se reconoce no pasa. */
@@ -321,10 +227,7 @@ internal enum class BikeAction(val pickerTitle: String, val emptyMessage: String
             BicycleStatus.entries.firstOrNull { it.name.equals(raw, ignoreCase = true) }
         } ?: return false
 
-        return when (this) {
-            UpdateComponents, ReportTheft -> estado == BicycleStatus.ACTIVE
-            Sell -> estado == BicycleStatus.ACTIVE || estado == BicycleStatus.STOLEN
-        }
+        return estado == BicycleStatus.ACTIVE
     }
 }
 
@@ -390,55 +293,93 @@ private fun Stat(label: String, value: Int?) {
     }
 }
 
+/**
+ * "Me robaron la bici", en bloque lleno.
+ *
+ * Es la única tarjeta que no comparte el fondo de las demás. La diferencia de
+ * color no es jerarquía visual por gusto: quien entra a la app para denunciar un
+ * robo acaba de perder algo y busca una sola cosa. Un bloque de color distinto
+ * se encuentra sin leer, que es más rápido que leer cinco títulos parecidos.
+ */
 @Composable
-private fun ActionCard(
-    number: String,
-    title: String,
-    subtitle: String,
-    enabled: Boolean = true,
-    onClick: () -> Unit = {},
-) {
+private fun EmergencyCard(subtitle: String, onClick: () -> Unit) {
     Card(
         onClick = onClick,
-        enabled = enabled,
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface,
-            disabledContainerColor = MaterialTheme.colorScheme.surface,
+            containerColor = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onPrimary,
         ),
         modifier = Modifier.fillMaxWidth(),
     ) {
         Row(
-            modifier = Modifier.padding(16.dp).fillMaxWidth(),
+            modifier = Modifier.padding(20.dp).fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                text = number,
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(end = 16.dp),
+            Icon(
+                imageVector = Icons.Default.Warning,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier.size(28.dp).padding(end = 4.dp),
             )
-            Column(Modifier.weight(1f)) {
+            Column(Modifier.weight(1f).padding(start = 16.dp)) {
                 Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleMedium,
+                    text = "Me robaron la bici",
+                    style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface,
+                    color = MaterialTheme.colorScheme.onPrimary,
                 )
                 Text(
                     text = subtitle,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    // Sobre el bloque lleno no hay `onSurfaceVariant` que valga:
+                    // el gris de las bajadas normales no tiene contraste contra
+                    // el color de marca. Se atenúa el propio `onPrimary`.
+                    color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f),
                 )
             }
-            // El estado de "todavía no está" va escrito, no insinuado con un gris:
-            // una tarjeta apagada sin explicación se lee como un error de la app.
-            if (!enabled) {
-                Text(
-                    text = "Próximamente",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+        }
+    }
+}
+
+/**
+ * Una tarjeta común de la grilla.
+ *
+ * Sin bajada y sin número de orden: los cinco subtítulos anteriores explicaban
+ * lo que el título ya decía y estiraban la lista hasta obligar a scrollear para
+ * ver la última opción. El ícono ocupa el lugar donde estaba el número, que
+ * enumeraba pasos de una secuencia que no existe.
+ */
+@Composable
+private fun ActionCard(
+    icon: ImageVector,
+    title: String,
+    onClick: () -> Unit = {},
+) {
+    Card(
+        onClick = onClick,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier.padding(20.dp).fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = icon,
+                // El ícono repite lo que dice el título de al lado; anunciarlo
+                // otra vez sólo hace más largo el recorrido con lector de
+                // pantalla.
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(24.dp),
+            )
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.weight(1f).padding(start = 20.dp),
+            )
         }
     }
 }

@@ -457,4 +457,16 @@ class ProfileViewModel @Inject constructor(
     fun consumeMessage() {
         _state.update { it.copy(message = null) }
     }
+
+    /**
+     * Cierra la sesión.
+     *
+     * `AuthRepository.logout()` avisa al backend, limpia los tokens y cierra la
+     * sesión en el `SessionManager`; la navegación escucha ese evento y vuelve al
+     * login. Por eso acá no hay callback: la pantalla no tiene que saber adónde
+     * ir, igual que cuando la sesión se vence sola.
+     */
+    fun logout() {
+        viewModelScope.launch { authRepository.logout() }
+    }
 }

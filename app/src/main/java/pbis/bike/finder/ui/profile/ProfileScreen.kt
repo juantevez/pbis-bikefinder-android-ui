@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
@@ -64,6 +65,7 @@ import kotlinx.datetime.toLocalDateTime
 import pbis.bike.finder.data.local.ThemePreference
 import pbis.bike.finder.data.remote.dto.Gender
 import pbis.bike.finder.ui.common.Dropdown
+import pbis.bike.finder.ui.common.initialsOf
 import pbis.bike.finder.ui.common.formatLongDate
 import pbis.bike.finder.ui.theme.LocalThemeController
 
@@ -119,12 +121,29 @@ fun ProfileScreen(
 
             // Sin perfil no hay nada que mostrar ni editar. Las otras secciones
             // sí sobreviven a su propio error, pero ésta es la pantalla entera.
-            state.profile == null -> LoadFailure(
-                message = state.loadError ?: "No pudimos cargar tu perfil.",
-                canRetry = state.canRetryLoad,
-                onRetry = viewModel::loadProfile,
+            //
+            // **Cerrar sesión va igual acá**, y es el caso que más importa. Si
+            // el perfil no carga suele ser porque auth-service no responde, y
+            // entonces tampoco anda nada más: la sesión quedó viva con un token
+            // que el backend ya no acepta. Sin este botón el usuario queda
+            // encerrado —adentro, sin poder hacer nada y sin poder salir—,
+            // porque el "Salir" de la barra superior ya no existe. Volver a
+            // entrar es lo único que arregla una sesión así, y `logout()` sirve
+            // aunque el backend no conteste: avisa si puede, pero borra los
+            // tokens y cierra la sesión pase lo que pase con esa llamada.
+            state.profile == null -> Column(
                 modifier = Modifier.fillMaxSize().padding(padding),
-            )
+            ) {
+                LoadFailure(
+                    message = state.loadError ?: "No pudimos cargar tu perfil.",
+                    canRetry = state.canRetryLoad,
+                    onRetry = viewModel::loadProfile,
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                )
+                Column(Modifier.padding(16.dp).navigationBarsPadding()) {
+                    LogoutCard(onLogout = viewModel::logout)
+                }
+            }
 
             else -> LazyColumn(
                 modifier = Modifier.fillMaxSize().padding(padding),
@@ -150,6 +169,8 @@ fun ProfileScreen(
                         onRetry = viewModel::loadNotifications,
                     )
                 }
+
+                item { LogoutCard(onLogout = viewModel::logout) }
 
                 item { Box(Modifier.height(8.dp).navigationBarsPadding()) }
             }
@@ -195,19 +216,6 @@ private fun ProfileAvatar(fullName: String?, email: String?) {
             modifier = Modifier.padding(top = 8.dp),
         )
     }
-}
-
-/** Hasta dos iniciales. Cae al email porque el nombre es opcional en el backend. */
-private fun initialsOf(fullName: String?, email: String?): String {
-    val fromName = fullName?.trim().orEmpty()
-        .split(' ')
-        .filter { it.isNotBlank() }
-        .take(2)
-        .map { it.first().uppercaseChar() }
-        .joinToString("")
-
-    if (fromName.isNotBlank()) return fromName
-    return email?.trim()?.firstOrNull()?.uppercaseChar()?.toString() ?: "?"
 }
 
 // ── Modo lectura ─────────────────────────────────────────────────────────────
@@ -641,6 +649,52 @@ private fun NotificationsCard(
 }
 
 // ── Piezas compartidas ───────────────────────────────────────────────────────
+
+/**
+ * Cerrar sesión.
+ *
+ * Vive acá desde que la barra superior quedó sólo con el avatar. Antes era un
+ * "Salir" pegado al borde del dashboard: la acción más destructiva de la app
+ * ocupando el lugar donde el pulgar cae solo, al lado de "Perfil", con el que se
+ * confunde por tamaño y forma. En el perfil está donde uno lo busca —junto al
+ * resto de lo que es la cuenta y no las bicicletas— y lejos de todo lo que se
+ * usa seguido.
+ *
+ * Pide confirmación porque volver cuesta: hay que tipear mail y contraseña de
+ * nuevo, y eso no puede ser la consecuencia de un toque perdido.
+ */
+@Composable
+private fun LogoutCard(onLogout: () -> Unit) {
+    var confirming by remember { mutableStateOf(false) }
+
+    SectionCard {
+        OutlinedButton(
+            onClick = { confirming = true },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Cerrar sesión", color = MaterialTheme.colorScheme.error)
+        }
+    }
+
+    if (confirming) {
+        AlertDialog(
+            onDismissRequest = { confirming = false },
+            title = { Text("¿Cerrar sesión?") },
+            text = { Text("Vas a tener que volver a entrar con tu mail y contraseña.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirming = false
+                        onLogout()
+                    },
+                ) { Text("Cerrar sesión", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirming = false }) { Text("Cancelar") }
+            },
+        )
+    }
+}
 
 @Composable
 private fun SectionCard(content: @Composable ColumnScope.() -> Unit) {

@@ -78,6 +78,10 @@ dependencies {
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.compose.material3)
+    // El set chico de iconos. material3 dejo de arrastrarlo de forma transitiva,
+    // asi que hay que pedirlo. Es `core` y no `extended` a proposito: extended
+    // son miles de vectores para usar cuatro.
+    implementation(libs.androidx.compose.material.icons.core)
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)

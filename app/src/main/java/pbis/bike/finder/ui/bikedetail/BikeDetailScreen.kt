@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -17,11 +18,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -32,6 +35,9 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -46,6 +52,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import pbis.bike.finder.data.remote.dto.BicycleDto
 import pbis.bike.finder.data.remote.dto.BicycleStatus
+import pbis.bike.finder.ui.common.DeregisterBikeDialog
 import pbis.bike.finder.ui.common.formatLongDate
 
 /**
@@ -68,6 +75,16 @@ fun BikeDetailScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
 
     LaunchedEffect(bikeId) { viewModel.start(bikeId) }
+
+    // La bici que se acaba de dar de baja ya no está en el registro: quedarse en
+    // su detalle mostraría datos que dejaron de valer. El listado, que recarga en
+    // cada `onResume`, es lo que corresponde ver.
+    LaunchedEffect(state.deregistered) {
+        if (state.deregistered) onBack()
+    }
+
+    // La confirmación de la baja, esperando respuesta.
+    var confirmingDeregister by remember { mutableStateOf(false) }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -112,9 +129,32 @@ fun BikeDetailScreen(
                     onPhotoClick = viewModel::openLightbox,
                     onUpdateComponents = { onUpdateComponents(bikeId) },
                     onReportTheft = { onReportTheft(bikeId) },
+                    onDeregister = { confirmingDeregister = true },
                 )
             }
         }
+    }
+
+    if (confirmingDeregister) {
+        DeregisterBikeDialog(
+            bikeName = state.bikeName,
+            onConfirm = {
+                confirmingDeregister = false
+                viewModel.deregister()
+            },
+            onDismiss = { confirmingDeregister = false },
+        )
+    }
+
+    state.deregisterError?.let { message ->
+        AlertDialog(
+            onDismissRequest = viewModel::dismissDeregisterError,
+            title = { Text("No se pudo dar de baja") },
+            text = { Text(message) },
+            confirmButton = {
+                TextButton(onClick = viewModel::dismissDeregisterError) { Text("Entendido") }
+            },
+        )
     }
 
     state.lightbox?.let { photo ->
@@ -139,6 +179,7 @@ private fun DetailContent(
     onPhotoClick: (BikePhoto) -> Unit,
     onUpdateComponents: () -> Unit,
     onReportTheft: () -> Unit,
+    onDeregister: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -215,15 +256,34 @@ private fun DetailContent(
         if (state.canReportTheft) {
             OutlinedButton(
                 onClick = onReportTheft,
-                modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp),
+                modifier = Modifier.fillMaxWidth(),
             ) { Text("Denunciar robo") }
         } else {
             Text(
                 text = "Sólo se puede denunciar una bicicleta activa.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(bottom = 24.dp),
             )
+        }
+
+        // La baja va última y separada del resto: es la única acción de esta
+        // pantalla que saca la bici del registro, y no tiene deshacer. Estaba en
+        // el dashboard como "Vendí mi bici", detrás de un selector que obligaba a
+        // reconocer la bici en una lista; acá ya se está mirando cuál es.
+        if (state.canDeregister) {
+            HorizontalDivider(Modifier.padding(top = 8.dp))
+            TextButton(
+                onClick = onDeregister,
+                enabled = !state.deregistering,
+                modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp),
+            ) {
+                Text(
+                    text = "Dar de baja esta bicicleta",
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+        } else {
+            Spacer(Modifier.height(24.dp))
         }
     }
 }

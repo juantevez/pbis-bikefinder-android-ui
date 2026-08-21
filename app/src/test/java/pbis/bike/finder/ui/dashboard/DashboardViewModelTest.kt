@@ -22,7 +22,6 @@ import org.junit.Test
 import pbis.bike.finder.data.local.TokenStorage
 import pbis.bike.finder.data.remote.SessionManager
 import pbis.bike.finder.data.remote.api.AuthApi
-import pbis.bike.finder.data.remote.api.BicycleApi
 import pbis.bike.finder.data.remote.api.DashboardApi
 import pbis.bike.finder.data.remote.dto.AuthResponseDto
 import pbis.bike.finder.data.remote.dto.BicicletaResumenDto
@@ -38,9 +37,7 @@ import pbis.bike.finder.data.remote.dto.UpdateProfileRequestDto
 import pbis.bike.finder.data.remote.dto.UserInfoDto
 import pbis.bike.finder.data.remote.dto.VerifyEmailDto
 import pbis.bike.finder.data.repository.AuthRepository
-import pbis.bike.finder.data.repository.BicycleRepository
 import pbis.bike.finder.data.repository.DashboardRepository
-import pbis.bike.finder.testing.StubBicycleApi
 import retrofit2.HttpException
 import retrofit2.Response
 import javax.inject.Provider
@@ -51,6 +48,9 @@ import javax.inject.Provider
  * **cuando el agregador falla, la pantalla sigue siendo navegable**. En el front
  * web ese fallo se llevaba puesta media pantalla, porque la misma respuesta
  * alimentaba los números y los selectores de bici.
+ *
+ * La baja de una bicicleta se probaba acá cuando era la tarjeta "Vendí mi bici".
+ * Se fue con ella al listado: ver `BikesViewModelTest`.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class DashboardViewModelTest {
@@ -100,28 +100,14 @@ class DashboardViewModelTest {
 
     private val json = Json { ignoreUnknownKeys = true }
 
-    /** Sólo implementa el DELETE: es lo único que el dashboard le pide a bicis. */
-    private class FakeBicycleApi(
-        var respond: () -> Response<Unit> = { Response.success(Unit) },
-    ) : StubBicycleApi() {
-        val deleted = mutableListOf<String>()
-
-        override suspend fun delete(id: String): Response<Unit> {
-            deleted += id
-            return respond()
-        }
-    }
-
     private fun viewModel(
         dashboardApi: DashboardApi,
-        bicycleApi: BicycleApi = FakeBicycleApi(),
         profile: () -> UserInfoDto = { UserInfoDto(id = "u-1", email = "juan@example.com") },
     ): DashboardViewModel {
         val authApi = FakeAuthApi(profile)
         val store = FakeTokenStore()
         return DashboardViewModel(
             dashboardRepository = DashboardRepository(dashboardApi, json),
-            bicycleRepository = BicycleRepository(bicycleApi, json),
             authRepository = AuthRepository(
                 api = authApi,
                 tokenStore = store,
@@ -220,59 +206,5 @@ class DashboardViewModelTest {
 
         assertNull(sut.state.value.userName)
         assertEquals(3, sut.state.value.totalBicicletas)
-    }
-
-    // ── Baja de una bicicleta ────────────────────────────────────────────────
-
-    @Test
-    fun `dar de baja llama al backend y recarga el resumen`() = runTest {
-        var llamadasAlResumen = 0
-        val dashboardApi = FakeDashboardApi {
-            llamadasAlResumen++
-            ResumenUsuarioDto(totalBicicletas = if (llamadasAlResumen > 1) 1 else 2)
-        }
-        val bicycleApi = FakeBicycleApi()
-        val sut = viewModel(dashboardApi, bicycleApi)
-
-        sut.loadSummary()
-        advanceUntilIdle()
-        assertEquals(2, sut.state.value.totalBicicletas)
-
-        sut.deregister("bici-1")
-        advanceUntilIdle()
-
-        assertEquals(listOf("bici-1"), bicycleApi.deleted)
-        // El resumen se vuelve a pedir: los números de arriba cambian con la baja.
-        assertEquals(2, llamadasAlResumen)
-        assertEquals(1, sut.state.value.totalBicicletas)
-        assertNotNull(sut.state.value.deregistered)
-    }
-
-    @Test
-    fun `un DELETE rechazado no se lee como exito`() = runTest {
-        // Retrofit no lanza cuando el tipo de retorno es Response<Unit>: sin el
-        // chequeo de isSuccessful, un 403 se contaba como baja hecha.
-        val bicycleApi = FakeBicycleApi {
-            Response.error(403, "{}".toResponseBody("application/json".toMediaType()))
-        }
-        val sut = viewModel(FakeDashboardApi(), bicycleApi)
-
-        sut.deregister("bici-1")
-        advanceUntilIdle()
-
-        assertNotNull(sut.state.value.deregisterError)
-        assertNull(sut.state.value.deregistered)
-    }
-
-    @Test
-    fun `no se manda la baja dos veces desde el mismo tap`() = runTest {
-        val bicycleApi = FakeBicycleApi()
-        val sut = viewModel(FakeDashboardApi(), bicycleApi)
-
-        sut.deregister("bici-1")
-        sut.deregister("bici-1")
-        advanceUntilIdle()
-
-        assertEquals(listOf("bici-1"), bicycleApi.deleted)
     }
 }
