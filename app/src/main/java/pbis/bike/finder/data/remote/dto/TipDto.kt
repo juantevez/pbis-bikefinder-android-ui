@@ -93,6 +93,22 @@ data class TipDto(
      * verificar: el propio DTO del backend pide mostrarlo con disclaimer.
      */
     val informantContact: String? = null,
+
+    /**
+     * Mail y teléfono, por separado (backend V16).
+     *
+     * Antes había un solo `informantContact` de texto libre, con dos problemas: el
+     * informante podía dejar **una sola cosa**, y del lado del dueño había que adivinar
+     * qué era para saber si ofrecerle escribir un mail o mandar un WhatsApp.
+     *
+     * Las pistas anteriores a V16 llegan con estos dos en null y todo en
+     * [informantContact]; para ésas la app clasifica el texto al mostrarlo.
+     *
+     * Misma regla de privacidad que [informantContact]: sólo vienen completos cuando la
+     * denuncia ofrece recompensa.
+     */
+    val informantEmail: String? = null,
+    val informantPhone: String? = null,
 )
 
 @Serializable

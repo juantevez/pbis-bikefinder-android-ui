@@ -183,19 +183,10 @@ private fun TipContent(
         // Sólo llega cuando la denuncia ofrece recompensa, y es dato de un
         // tercero sin verificar: el aviso va pegado al dato, no en una ayuda
         // aparte que nadie lee.
-        tip.informantContact?.takeIf { it.isNotBlank() }?.let { contact ->
+        val contactos = contactosDe(tip)
+        if (contactos.isNotEmpty()) {
             Section("Contacto del informante") {
-                Text(
-                    text = contact,
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Text(
-                    text = "Lo dejó un tercero y no está verificado. Contactarlo queda " +
-                        "bajo tu responsabilidad.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                ContactosDelInformante(contactos)
             }
         }
 
@@ -261,6 +252,85 @@ private fun TipContent(
         }
 
         Box(Modifier.padding(bottom = 16.dp))
+    }
+}
+
+/**
+ * El contacto que dejó el informante, con la forma de escribirle que corresponda.
+ *
+ * El dato es texto libre —el backend no lo valida a propósito— así que se reconoce lo que se
+ * puede y lo que no, se muestra tal cual: un usuario de Instagram sigue siendo un contacto
+ * util aunque no haya boton que lo abra.
+ *
+ * **WhatsApp va primero y no hay boton de llamar.** Es una decision de producto: quien reporta
+ * una pista sólo quiso ayudar, y una llamada de un desconocido sobre un robo intimida. Un
+ * mensaje lo deja leer y contestar cuando quiera — menos invasivo es tambien mas probable que
+ * conteste.
+ *
+ * El aviso de que el dato no está verificado va **pegado a los botones** y no al principio de
+ * la pantalla: con acciones de un toque, contactar a alguien que quizas no tiene nada que ver
+ * con el robo pasa a ser trivial, y ahi es donde hay que decirlo.
+ */
+@Composable
+private fun ContactosDelInformante(contactos: List<ContactoInformante>) {
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        contactos.forEach { UnContacto(it) }
+
+        Text(
+            text = "Lo dejó un tercero y no está verificado. Contactarlo queda bajo tu " +
+                "responsabilidad.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun UnContacto(clasificado: ContactoInformante) {
+    val context = LocalContext.current
+
+    fun abrir(uri: String) {
+        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, uri.toUri())) }
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(
+            text = clasificado.crudo,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+
+        when (clasificado) {
+            is ContactoInformante.Email -> Button(
+                onClick = { abrir(mailtoUri(clasificado)) },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Enviar un mail") }
+
+            is ContactoInformante.Telefono -> Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                if (clasificado.sirveParaWhatsApp) {
+                    Button(
+                        onClick = { abrir(whatsAppUrl(clasificado)) },
+                        modifier = Modifier.weight(1f),
+                    ) { Text("WhatsApp") }
+                }
+                // El SMS queda siempre: funciona con un numero local, que es
+                // justamente el caso en que WhatsApp no se puede ofrecer.
+                OutlinedButton(
+                    onClick = { abrir(smsUri(clasificado)) },
+                    modifier = Modifier.weight(1f),
+                ) { Text("SMS") }
+            }
+
+            is ContactoInformante.Otro -> Text(
+                text = "No parece un mail ni un teléfono, así que hay que escribirle por " +
+                    "donde corresponda.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 
