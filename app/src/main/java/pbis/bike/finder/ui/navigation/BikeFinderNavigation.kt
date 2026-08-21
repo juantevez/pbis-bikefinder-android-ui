@@ -6,6 +6,7 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navDeepLink
 import androidx.navigation.toRoute
 import kotlinx.serialization.Serializable
 import pbis.bike.finder.data.remote.SessionEvent
@@ -13,15 +14,27 @@ import pbis.bike.finder.data.remote.SessionManager
 import pbis.bike.finder.ui.addbike.AddBikeScreen
 import pbis.bike.finder.ui.bikedetail.BikeDetailScreen
 import pbis.bike.finder.ui.bikes.BikesScreen
+import pbis.bike.finder.ui.conversation.ConversationScreen
 import pbis.bike.finder.ui.dashboard.DashboardScreen
 import pbis.bike.finder.ui.login.LoginScreen
 import pbis.bike.finder.ui.profile.ProfileScreen
 import pbis.bike.finder.ui.reports.MyReportsScreen
 import pbis.bike.finder.ui.reporttheft.ReportTheftScreen
 import pbis.bike.finder.ui.subscription.SubscriptionScreen
+import pbis.bike.finder.ui.tipform.TipFormScreen
 import pbis.bike.finder.ui.tips.TipDetailScreen
 import pbis.bike.finder.ui.tips.TipsListScreen
 import pbis.bike.finder.ui.updatecomponents.UpdateComponentsScreen
+
+/**
+ * De dónde salen los links que abre el informante.
+ *
+ * Es el mismo valor que theft-report tiene en `app.tip.base-url`, y hoy es una
+ * IP de la LAN de desarrollo. Cuando haya dominio real, esto y aquello cambian
+ * juntos — y recién ahí el App Link se puede verificar para que abra sin
+ * preguntar.
+ */
+private const val WEB_FRONT_BASE = "http://192.168.0.2:5173"
 
 /**
  * Rutas de la app, tipadas.
@@ -84,9 +97,13 @@ sealed interface Route {
 /**
  * Grafo de navegación.
  *
- * Las pantallas todavía no existen: esto fija el mapa de rutas y el punto donde
- * se engancha el cierre de sesión. Cada fase siguiente reemplaza un
- * `PlaceholderScreen` por la pantalla real.
+ * Ya no queda ninguna pantalla sin implementar: con la conversación del
+ * informante se fue el último `PlaceholderScreen`, y el archivo que lo definía
+ * también.
+ *
+ * Las dos rutas de abajo del todo —`TipForm` y `Conversation`— son las únicas
+ * que se abren **sin sesión**, por deep link y no navegando. Su credencial es el
+ * token de la URL.
  */
 @Composable
 fun BikeFinderNavHost(
@@ -233,7 +250,50 @@ fun BikeFinderNavHost(
         composable<Route.Profile> {
             ProfileScreen(onBack = { navController.popBackStack() })
         }
-        composable<Route.TipForm> { PlaceholderScreen("Reportar avistamiento") }
-        composable<Route.Conversation> { PlaceholderScreen("Conversación") }
+        // Deep links: el informante llega por un link que alguien compartió, no
+        // navegando. `bikefinder://tip?token=…` es el que se puede disparar a
+        // mano; el `http` es el que hoy genera el backend para el QR del cartel,
+        // y sin dominio verificado Android va a preguntar si abrir el navegador
+        // o la app. Ver el intent-filter del manifest.
+        composable<Route.TipForm>(
+            deepLinks = listOf(
+                navDeepLink { uriPattern = "bikefinder://tip?token={token}" },
+                navDeepLink { uriPattern = "$WEB_FRONT_BASE/tip-form.html?token={token}" },
+            ),
+        ) { entry ->
+            val route = entry.toRoute<Route.TipForm>()
+            TipFormScreen(
+                token = route.token,
+                // Al enviar, el informante recibe el link de su hilo. El backend
+                // lo emitia en la misma respuesta desde siempre y nadie lo
+                // usaba: la conversacion existia entera y no la alcanzaba nadie.
+                onOpenConversation = { navController.navigate(Route.Conversation(it)) },
+                // "Cerrar" tiene que funcionar tambien cuando la pantalla es lo
+                // unico que hay en el back stack, que es el caso normal: se
+                // entro por un link, no navegando. Ahi `popBackStack` devuelve
+                // false y no pasa nada, asi que se cae a la pantalla inicial.
+                onClose = {
+                    if (!navController.popBackStack()) {
+                        navController.navigate(Route.Landing) { popUpTo(0) { inclusive = true } }
+                    }
+                },
+            )
+        }
+        composable<Route.Conversation>(
+            deepLinks = listOf(
+                navDeepLink { uriPattern = "bikefinder://conversation?token={token}" },
+                navDeepLink { uriPattern = "$WEB_FRONT_BASE/conversation.html?token={token}" },
+            ),
+        ) { entry ->
+            val route = entry.toRoute<Route.Conversation>()
+            ConversationScreen(
+                token = route.token,
+                onClose = {
+                    if (!navController.popBackStack()) {
+                        navController.navigate(Route.Landing) { popUpTo(0) { inclusive = true } }
+                    }
+                },
+            )
+        }
     }
 }

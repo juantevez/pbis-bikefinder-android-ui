@@ -24,3 +24,16 @@ fun formatLongDate(date: LocalDate): String =
  */
 fun formatLongDate(instant: Instant): String =
     formatLongDate(instant.toLocalDateTime(BackendTimeZone).date)
+
+/**
+ * "20/08 14:30" — el formato corto de los mensajes, tomado del front web.
+ *
+ * Sin año a propósito: un hilo entre el dueño y quien vio la bici dura días, no
+ * meses, y el año ahí sólo agrega ruido. Lo usan las dos puntas de la
+ * conversación, que es por lo que vive acá y no adentro de una pantalla.
+ */
+fun formatDateTime(dateTime: kotlinx.datetime.LocalDateTime): String {
+    fun pad(value: Int) = value.toString().padStart(2, '0')
+    return "${pad(dateTime.dayOfMonth)}/${pad(dateTime.monthNumber)} " +
+        "${pad(dateTime.hour)}:${pad(dateTime.minute)}"
+}

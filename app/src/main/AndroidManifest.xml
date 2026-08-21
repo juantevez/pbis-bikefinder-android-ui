@@ -49,6 +49,76 @@
 
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+
+            <!--
+              El formulario del informante: "¿viste esta bicicleta?".
+
+              Se llega por un link que alguien compartió o por el QR del cartel,
+              nunca navegando dentro de la app: quien lo abre es un tercero que
+              lo más probable es que ni siquiera tenga cuenta.
+
+              Esquema propio. Es el que se puede disparar a mano para probar:
+                adb shell am start -a android.intent.action.VIEW \
+                  -d "bikefinder://tip?token=EL_TOKEN"
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data
+                    android:host="tip"
+                    android:scheme="bikefinder" />
+            </intent-filter>
+
+            <!--
+              El hilo con el dueño, del lado de quien mandó la pista. Mismo
+              criterio que el formulario: se llega por un link, sin sesión.
+
+                adb shell am start -a android.intent.action.VIEW \
+                  -d "bikefinder://conversation?token=EL_TOKEN"
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data
+                    android:host="conversation"
+                    android:scheme="bikefinder" />
+            </intent-filter>
+
+            <!--
+              El link real que hoy genera theft-report (app.tip.base-url), que es
+              el que viaja en el mail y en el QR.
+
+              android:autoVerify NO va: la verificación de App Links exige que el
+              dominio sirva un /.well-known/assetlinks.json, y esto todavía es
+              una IP de la LAN de desarrollo. Sin verificar, Android pregunta si
+              abrir el navegador o la app en vez de abrir la app directo — que es
+              feo pero funciona. Cuando haya dominio real hay que sumar el
+              assetlinks y activar autoVerify; y el host de acá tiene que cambiar
+              junto con el del backend y con WEB_FRONT_BASE en la navegación.
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data
+                    android:host="192.168.0.2"
+                    android:pathPrefix="/tip-form.html"
+                    android:port="5173"
+                    android:scheme="http" />
+                <data
+                    android:host="192.168.0.2"
+                    android:pathPrefix="/conversation.html"
+                    android:port="5173"
+                    android:scheme="http" />
+            </intent-filter>
         </activity>
     </application>
 

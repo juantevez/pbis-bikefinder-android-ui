@@ -5,10 +5,10 @@ import pbis.bike.finder.data.remote.dto.ConversationDto
 import pbis.bike.finder.data.remote.dto.MessageSentDto
 import pbis.bike.finder.data.remote.dto.PdfGeneratedDto
 import pbis.bike.finder.data.remote.dto.SendMessageRequestDto
-import pbis.bike.finder.data.remote.dto.StolenBikeDto
 import pbis.bike.finder.data.remote.dto.SubmitTipRequestDto
 import pbis.bike.finder.data.remote.dto.TheftReportListResponseDto
 import pbis.bike.finder.data.remote.dto.TipDto
+import pbis.bike.finder.data.remote.dto.TipFormInfoDto
 import pbis.bike.finder.data.remote.dto.TipListResponseDto
 import pbis.bike.finder.data.remote.dto.TipStatsDto
 import pbis.bike.finder.data.remote.dto.TipSubmittedDto
@@ -109,7 +109,7 @@ interface PublicTipApi {
 
     @Headers("$HEADER_SKIP_AUTH: true")
     @GET("api/v1/tips/{token}/info")
-    suspend fun stolenBikeInfo(@Path("token") token: String): StolenBikeDto
+    suspend fun tipFormInfo(@Path("token") token: String): TipFormInfoDto
 
     /**
      * Responde **429** con `message` propio cuando hay rate limit: ahí no

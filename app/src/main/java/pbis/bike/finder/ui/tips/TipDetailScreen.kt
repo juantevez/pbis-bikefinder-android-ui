@@ -42,6 +42,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.datetime.LocalDateTime
 import pbis.bike.finder.data.remote.dto.MessageDto
 import pbis.bike.finder.data.remote.dto.TipDto
+import pbis.bike.finder.ui.common.formatDateTime
 import pbis.bike.finder.ui.common.formatLongDate
 
 /**
@@ -457,13 +458,6 @@ private fun LabelledRow(label: String, content: @Composable () -> Unit) {
         )
         content()
     }
-}
-
-/** "20/08 14:30". Es el formato corto del front web para los mensajes. */
-private fun formatDateTime(dateTime: LocalDateTime): String {
-    fun pad(value: Int) = value.toString().padStart(2, '0')
-    return "${pad(dateTime.dayOfMonth)}/${pad(dateTime.monthNumber)} " +
-        "${pad(dateTime.hour)}:${pad(dateTime.minute)}"
 }
 
 @Composable

@@ -220,34 +220,44 @@ data class PdfVersionDto(
     val expiresAt: kotlinx.datetime.LocalDateTime? = null,
 )
 
-// ── Búsqueda pública de bicis robadas ────────────────────────────────────────
+// ── Formulario público de pistas ─────────────────────────────────────────────
 
-/** `StolenBikeResponse`. Contrato del listado público y del detalle por token. */
+/**
+ * `GET /api/v1/tips/{token}/info` — la bicicleta que ve quien escaneó el cartel.
+ *
+ * Es el mismo `StolenBikeResponse` que devuelve `GET /api/v1/stolen-bikes/{id}`,
+ * y eso es deliberado: el criterio de privacidad no tiene por qué cambiar por la
+ * puerta de entrada. Hasta la localidad, **sin calle ni altura**, y con las
+ * coordenadas redondeadas a ~1 km — el mapa ubica la zona sin señalar la puerta
+ * de la víctima.
+ *
+ * Todo es nullable salvo `reportId`: una denuncia puede no tener recompensa, ni
+ * contacto público, ni haber cargado el año de la bici.
+ */
 @Serializable
-data class StolenBikeDto(
+data class TipFormInfoDto(
     val reportId: String,
     val bicycleId: String? = null,
     val theftDate: LocalDate? = null,
     @Serializable(with = FlexibleLocalDateTimeSerializer::class)
     val reportedAt: kotlinx.datetime.LocalDateTime? = null,
-    val location: StolenBikeLocationDto? = null,
-    val bike: StolenBikeInfoDto? = null,
-    val reward: StolenBikeRewardDto? = null,
-    val contact: StolenBikeContactDto? = null,
+    val location: TipFormLocationDto? = null,
+    val bike: TipFormBikeDto? = null,
+    val reward: TipFormRewardDto? = null,
 )
 
 @Serializable
-data class StolenBikeLocationDto(
-    val locationId: Int? = null,
+data class TipFormLocationDto(
     val localityName: String? = null,
     val provinceName: String? = null,
     val departmentName: String? = null,
+    /** Redondeadas a ~1 km del lado del backend; no son la dirección del robo. */
     val latitude: Double? = null,
     val longitude: Double? = null,
 )
 
 @Serializable
-data class StolenBikeInfoDto(
+data class TipFormBikeDto(
     /** Id del tipo de bici, no su nombre. */
     val type: Int? = null,
     val primaryColorId: Int? = null,
@@ -258,13 +268,8 @@ data class StolenBikeInfoDto(
 )
 
 @Serializable
-data class StolenBikeRewardDto(
+data class TipFormRewardDto(
     val offered: Boolean = false,
+    /** Ya formateada por el backend: "ARS 50000". */
     val formatted: String? = null,
-)
-
-@Serializable
-data class StolenBikeContactDto(
-    val phone: String? = null,
-    val email: String? = null,
 )

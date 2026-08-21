@@ -35,8 +35,26 @@ data class SubmitTipRequestDto(
     /**
      * max 255, **sin validación de formato a propósito**: puede ser un teléfono,
      * un usuario de Instagram o lo que el informante quiera dejar.
+     *
+     * **Legado.** Desde V16 el backend recibe el mail y el teléfono por
+     * separado; este campo queda para las pistas viejas y para un contacto que
+     * no sea ninguno de los dos. La app manda los dos nuevos.
      */
     val informantContact: String? = null,
+    /**
+     * Mail y teléfono, separados desde V16.
+     *
+     * Con un solo campo se podía dejar **una sola cosa**, y del lado del dueño
+     * había que adivinar qué era para saber si ofrecerle escribir un mail o
+     * mandar un WhatsApp. Adivinar sobre texto libre falla justo cuando más
+     * importa: la pista es su único camino hacia quien vio la bici.
+     *
+     * Ninguno se valida acá. Un formato mal tipeado no puede costar la pista
+     * entera: sigue siendo un avistamiento con fecha, lugar y descripción, y
+     * rechazarla sería perder todo eso a cambio de nada.
+     */
+    val informantEmail: String? = null,
+    val informantPhone: String? = null,
 ) {
     companion object {
         const val MAX_TIME_APPROX = 50
