@@ -37,7 +37,6 @@ data class SubmitTipRequestDto(
      * un usuario de Instagram o lo que el informante quiera dejar.
      */
     val informantContact: String? = null,
-    val wantsReply: Boolean = false,
 ) {
     companion object {
         const val MAX_TIME_APPROX = 50
@@ -51,8 +50,8 @@ data class SubmitTipRequestDto(
  *
  * **`conversationToken` es el campo que el front web tira.** El informante manda
  * la pista y nunca recibe el link para seguir la conversación, aunque el backend
- * se lo dio en esta misma respuesta: por eso `wantsReply` queda a medio
- * funcionar. En Android hay que guardarlo y ofrecerle el hilo.
+ * se lo dio en esta misma respuesta. En Android hay que guardarlo y ofrecerle
+ * el hilo.
  */
 @Serializable
 data class TipSubmittedDto(
