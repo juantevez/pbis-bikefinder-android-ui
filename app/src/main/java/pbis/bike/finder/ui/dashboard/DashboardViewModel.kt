@@ -18,15 +18,19 @@ import javax.inject.Inject
 
 data class DashboardUiState(
     val loadingSummary: Boolean = true,
-    val totalBicicletas: Int? = null,
-    val totalComponentes: Int? = null,
-    val totalReportesActivos: Int? = null,
+    /**
+     * Lo único que se usa del resumen: alimenta los selectores de bicicleta.
+     * Los contadores que traía el agregador —bicicletas, componentes, reportes
+     * activos— no se mapean más porque la tira de números que los mostraba dejó
+     * de existir. El DTO los sigue parseando: son parte de lo que el endpoint
+     * devuelve, y eso no lo decide esta pantalla.
+     */
     val bicicletas: List<BicicletaResumenDto> = emptyList(),
     /**
      * Error del resumen **solamente**. No apaga la grilla: registrar una bici o
      * ver el listado no dependen del agregador, y dejar la pantalla en blanco
-     * porque no se pudieron pintar cuatro números deja al usuario sin ninguna
-     * puerta de salida.
+     * porque no se pudo traer una lista deja al usuario sin ninguna puerta de
+     * salida.
      */
     val summaryError: String? = null,
     val canRetrySummary: Boolean = false,
@@ -52,7 +56,8 @@ class DashboardViewModel @Inject constructor(
      *
      * La llama la pantalla en cada `onResume`, no el `init`: el ViewModel
      * sobrevive a la navegación, así que al volver de registrar una bici el
-     * `init` ya corrió y los números mostrarían el estado anterior.
+     * `init` ya corrió y los selectores mostrarían la lista anterior —sin la
+     * bici recién registrada.
      */
     fun loadSummary() {
         _state.update { it.copy(loadingSummary = true, summaryError = null) }
@@ -62,9 +67,6 @@ class DashboardViewModel @Inject constructor(
                 is ApiResult.Success -> _state.update {
                     it.copy(
                         loadingSummary = false,
-                        totalBicicletas = result.data.totalBicicletas,
-                        totalComponentes = result.data.totalComponentes,
-                        totalReportesActivos = result.data.totalReportesActivos,
                         bicicletas = result.data.bicicletas,
                         summaryError = null,
                     )

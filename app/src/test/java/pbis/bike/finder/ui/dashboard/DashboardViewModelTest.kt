@@ -124,9 +124,12 @@ class DashboardViewModelTest {
     // ── Tests ────────────────────────────────────────────────────────────────
 
     @Test
-    fun `el resumen llena los tres numeros y la lista de bicicletas`() = runTest {
+    fun `el resumen llena la lista de bicicletas`() = runTest {
         val sut = viewModel(
             FakeDashboardApi {
+                // Los contadores del DTO se mandan igual: el endpoint los
+                // devuelve y el parseo tiene que tolerarlos, pero el estado ya
+                // no los expone.
                 ResumenUsuarioDto(
                     totalBicicletas = 4,
                     totalComponentes = 12,
@@ -140,24 +143,28 @@ class DashboardViewModelTest {
         advanceUntilIdle()
 
         val state = sut.state.value
-        assertEquals(4, state.totalBicicletas)
-        assertEquals(12, state.totalComponentes)
-        assertEquals(1, state.totalReportesActivos)
         assertEquals(listOf("bici-1"), state.bicicletas.map { it.id })
         assertNull(state.summaryError)
     }
 
     @Test
-    fun `mientras carga los numeros son null, no cero`() = runTest {
-        // Un 0 provisorio se lee como un dato: le diría al usuario que no tiene
-        // bicicletas registradas justo antes de mostrarle que sí. La pantalla
-        // pinta "—" mientras el valor es null.
-        val sut = viewModel(FakeDashboardApi { ResumenUsuarioDto(totalBicicletas = 4) })
+    fun `mientras carga, loadingSummary tapa la lista vacia`() = runTest {
+        // Una lista vacía provisoria se lee como un dato: el selector diría "no
+        // tenés bicicletas activas" justo antes de mostrarle que sí. Por eso el
+        // selector mira `loadingSummary` primero y pinta el spinner. Esta era la
+        // misma trampa que cuidaba el "—" de la tira de números, que ya no está.
+        val sut = viewModel(
+            FakeDashboardApi {
+                ResumenUsuarioDto(
+                    bicicletas = listOf(BicicletaResumenDto(id = "bici-1", marca = "Trek")),
+                )
+            },
+        )
 
         sut.loadSummary()
 
         assertTrue(sut.state.value.loadingSummary)
-        assertNull(sut.state.value.totalBicicletas)
+        assertTrue(sut.state.value.bicicletas.isEmpty())
     }
 
     @Test
@@ -184,20 +191,24 @@ class DashboardViewModelTest {
         advanceUntilIdle()
         assertNotNull(sut.state.value.summaryError)
 
-        api.respond = { ResumenUsuarioDto(totalBicicletas = 2) }
+        api.respond = {
+            ResumenUsuarioDto(bicicletas = listOf(BicicletaResumenDto(id = "bici-2")))
+        }
         sut.loadSummary()
         advanceUntilIdle()
 
         assertNull(sut.state.value.summaryError)
-        assertEquals(2, sut.state.value.totalBicicletas)
+        assertEquals(listOf("bici-2"), sut.state.value.bicicletas.map { it.id })
     }
 
     @Test
     fun `un perfil que falla no rompe el dashboard`() = runTest {
         // El nombre del encabezado es decoración. Si `/auth/me` se cae, la
-        // pantalla tiene que seguir mostrando los números.
+        // pantalla tiene que seguir trayendo la lista.
         val sut = viewModel(
-            FakeDashboardApi { ResumenUsuarioDto(totalBicicletas = 3) },
+            FakeDashboardApi {
+                ResumenUsuarioDto(bicicletas = listOf(BicicletaResumenDto(id = "bici-3")))
+            },
             profile = { throw httpError(500) },
         )
 
@@ -205,6 +216,6 @@ class DashboardViewModelTest {
         advanceUntilIdle()
 
         assertNull(sut.state.value.userName)
-        assertEquals(3, sut.state.value.totalBicicletas)
+        assertEquals(listOf("bici-3"), sut.state.value.bicicletas.map { it.id })
     }
 }

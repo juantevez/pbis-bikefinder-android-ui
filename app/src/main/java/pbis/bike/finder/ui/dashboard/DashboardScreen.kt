@@ -23,7 +23,6 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -52,12 +51,17 @@ import pbis.bike.finder.ui.common.UserNameLine
 /**
  * Hub del usuario autenticado, equivalente a `dashboard.html` del front web.
  *
- * No tiene lógica propia: pinta el resumen del agregador y ofrece las tarjetas
- * que llevan al resto de la app. La regla que ordena la pantalla es que
- * **la grilla nunca depende del resumen**: si el agregador falla, los números
- * muestran el error y las tarjetas siguen andando. En el front web ese fallo se
- * llevaba puesta media pantalla, porque la lista de bicis alimentaba también los
- * selectores.
+ * No tiene lógica propia: ofrece las tarjetas que llevan al resto de la app. La
+ * regla que ordena la pantalla es que **la grilla nunca depende del resumen**:
+ * si el agregador falla, las tarjetas siguen andando. En el front web ese fallo
+ * se llevaba puesta media pantalla, porque la lista de bicis alimentaba también
+ * los selectores.
+ *
+ * La tira de números del agregador —bicicletas, componentes, reportes activos—
+ * no está más. Los dos primeros eran el conteo de la lista que el selector ya
+ * muestra, y el tercero no llegaba a justificar la tira él solo. El resumen se
+ * sigue pidiendo igual: es de donde sale la lista de bicis de los selectores,
+ * que es su uso real.
  *
  * El orden de las tarjetas no es el de la web ni el de antes. Arriba de todo va
  * la denuncia de robo, que es lo único que se hace con urgencia y a menudo desde
@@ -119,8 +123,6 @@ fun DashboardScreen(
         ) {
             item { UserNameLine(state.userName) }
 
-            item { StatsStrip(state, onRetry = viewModel::loadSummary) }
-
             item {
                 Text(
                     text = "¿Qué querés hacer?",
@@ -177,7 +179,9 @@ fun DashboardScreen(
             bikes = elegibles,
             loading = state.loadingSummary,
             error = state.summaryError,
+            canRetry = state.canRetrySummary,
             emptyMessage = action.emptyMessage,
+            onRetry = viewModel::loadSummary,
             onDismiss = { pickerFor = null },
             onPick = { bike ->
                 pickerFor = null
@@ -228,68 +232,6 @@ internal enum class BikeAction(val pickerTitle: String, val emptyMessage: String
         } ?: return false
 
         return estado == BicycleStatus.ACTIVE
-    }
-}
-
-/**
- * Los tres números del agregador.
- *
- * El cuarto del front web —"estado de cuenta"— no se porta: el backend lo tiene
- * hardcodeado en "Activa", así que es un cartel que dice siempre lo mismo.
- */
-@Composable
-private fun StatsStrip(state: DashboardUiState, onRetry: () -> Unit) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column(Modifier.padding(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-            ) {
-                Stat("Bicicletas", state.totalBicicletas)
-                Stat("Componentes", state.totalComponentes)
-                Stat("Reportes activos", state.totalReportesActivos)
-            }
-
-            if (state.summaryError != null) {
-                HorizontalDivider(Modifier.padding(vertical = 12.dp))
-                Text(
-                    text = state.summaryError,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                if (state.canRetrySummary) {
-                    TextButton(onClick = onRetry, modifier = Modifier.padding(top = 4.dp)) {
-                        Text("Reintentar")
-                    }
-                }
-            }
-        }
-    }
-}
-
-/**
- * Un número del encabezado.
- *
- * Arranca en "—" mientras carga, igual que el front web: un 0 provisorio se lee
- * como un dato y le diría al usuario que no tiene bicicletas registradas.
- */
-@Composable
-private fun Stat(label: String, value: Int?) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(
-            text = value?.toString() ?: "—",
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.primary,
-        )
-        Text(
-            text = label,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
     }
 }
 
@@ -388,8 +330,9 @@ private fun ActionCard(
  * Selector de bicicleta.
  *
  * Se alimenta del resumen y no de un GET propio: el agregador ya trajo la lista.
- * Por eso acá sí hay que contemplar que el resumen haya fallado — es el único
- * lugar de la pantalla donde ese fallo bloquea algo.
+ * Por eso acá sí hay que contemplar que el resumen haya fallado — desde que no
+ * está la tira de números, éste es el único lugar de la pantalla donde ese fallo
+ * se ve, y el único donde bloquea algo.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -398,7 +341,9 @@ private fun BikePicker(
     bikes: List<BicicletaResumenDto>,
     loading: Boolean,
     error: String?,
+    canRetry: Boolean,
     emptyMessage: String,
+    onRetry: () -> Unit,
     onDismiss: () -> Unit,
     onPick: (BicicletaResumenDto) -> Unit,
 ) {
@@ -422,12 +367,26 @@ private fun BikePicker(
                     Modifier.padding(vertical = 24.dp).align(Alignment.CenterHorizontally),
                 )
 
-                error != null -> Text(
-                    text = error,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(vertical = 24.dp),
-                )
+                error != null -> Column(Modifier.padding(vertical = 24.dp)) {
+                    Text(
+                        text = error,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    // El reintento vivia en la tira de numeros del dashboard. Al
+                    // sacarla, este es el unico lugar donde el fallo del resumen
+                    // se ve, asi que tambien tiene que ser el lugar donde se
+                    // sale de el: sin esto la unica salida es cerrar la app,
+                    // porque el resumen solo se recarga en el onResume.
+                    if (canRetry) {
+                        TextButton(
+                            onClick = onRetry,
+                            modifier = Modifier.padding(top = 4.dp),
+                        ) {
+                            Text("Reintentar")
+                        }
+                    }
+                }
 
                 // El texto lo pone la acción: "no tenés bicicletas" y "no tenés
                 // ninguna que sirva para esto" son cosas distintas, y con el

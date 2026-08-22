@@ -15,6 +15,9 @@ import kotlinx.serialization.Serializable
 /** `GET /api/dashboard/usuario/resumen`. */
 @Serializable
 data class ResumenUsuarioDto(
+    // Los tres contadores no los consume ninguna pantalla desde que se sacó la
+    // tira de números del dashboard. Se quedan porque esto es el contrato del
+    // endpoint, no lo que la UI necesita hoy: [DtoContractTest] los verifica.
     val totalBicicletas: Int = 0,
     val totalComponentes: Int = 0,
     val totalReportesActivos: Int = 0,
