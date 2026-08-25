@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -196,6 +197,10 @@ private fun Composer(state: ConversationUiState, viewModel: ConversationViewMode
         Modifier
             .fillMaxWidth()
             .padding(16.dp)
+            // imePadding va primero y CONSUME el inset del teclado: cuando esta
+            // abierto, navigationBarsPadding ya no suma nada y el campo no queda
+            // flotando con un hueco de mas.
+            .imePadding()
             .navigationBarsPadding(),
     ) {
         if (!state.canReply) {
