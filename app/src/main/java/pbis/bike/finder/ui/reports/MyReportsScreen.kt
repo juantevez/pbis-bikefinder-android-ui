@@ -117,7 +117,15 @@ fun MyReportsScreen(
                     )
                 }
 
+                // `weight(1f)` no es decorativo: sin el, el Column mide la lista
+                // con el alto entero y no con el que sobra debajo del TabRow, asi
+                // que cuelga por fuera de la pantalla. Ese pedazo colgado queda
+                // ademas fuera del rango de scroll de la propia lista, o sea que
+                // no hay forma de llegar: con 6 denuncias la ultima tarjeta se ve
+                // cortada por el borde de abajo y no baja mas. Con 4 o menos entra
+                // todo y el bug no se nota.
                 else -> LazyColumn(
+                    modifier = Modifier.weight(1f),
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
