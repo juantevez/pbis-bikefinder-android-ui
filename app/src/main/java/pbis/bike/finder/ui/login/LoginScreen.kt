@@ -15,6 +15,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -83,6 +84,11 @@ fun LoginScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 4.dp, bottom = 32.dp),
             )
+
+            if (state.awaitingMfa) {
+                SegundoFactor(state = state, viewModel = viewModel)
+                return@Column
+            }
 
             OutlinedTextField(
                 value = state.email,
@@ -161,5 +167,92 @@ fun LoginScreen(
                 modifier = Modifier.padding(top = 24.dp),
             )
         }
+    }
+}
+
+/**
+ * Segundo paso del login.
+ *
+ * Reemplaza al formulario en vez de agregarse debajo: acá no hay nada que
+ * decidir —la contraseña ya se validó— y dejar los campos anteriores a la vista
+ * invita a corregirlos, que es justo lo que no hay que hacer.
+ */
+@Composable
+private fun SegundoFactor(
+    state: LoginUiState,
+    viewModel: LoginViewModel,
+) {
+    Text(
+        text = "Verificación en dos pasos",
+        style = MaterialTheme.typography.titleMedium,
+        color = MaterialTheme.colorScheme.onBackground,
+    )
+    Text(
+        text = "Ingresá el código de tu app de autenticación. Si perdiste el teléfono, "
+            + "usá uno de tus códigos de recuperación.",
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(top = 8.dp, bottom = 20.dp),
+    )
+
+    OutlinedTextField(
+        value = state.mfaCode,
+        onValueChange = viewModel::onMfaCodeChange,
+        label = { Text("Código") },
+        singleLine = true,
+        // NumberPassword y no Number: el teclado numérico alcanza para los seis
+        // dígitos, pero el campo acepta además los códigos de recuperación, que
+        // llevan letras y guión. KeyboardType es una sugerencia, no un filtro.
+        keyboardOptions = KeyboardOptions(
+            keyboardType = KeyboardType.Text,
+            imeAction = ImeAction.Done,
+        ),
+        keyboardActions = KeyboardActions(onDone = { viewModel.submitMfaCode() }),
+        enabled = !state.submitting,
+        modifier = Modifier.fillMaxWidth(),
+    )
+
+    state.formError?.let { error ->
+        Card(
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.errorContainer,
+            ),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 16.dp),
+        ) {
+            Text(
+                text = error,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+                modifier = Modifier.padding(12.dp),
+            )
+        }
+    }
+
+    Button(
+        onClick = viewModel::submitMfaCode,
+        enabled = !state.submitting,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 24.dp),
+    ) {
+        if (state.submitting) {
+            CircularProgressIndicator(
+                strokeWidth = 2.dp,
+                color = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier.size(18.dp),
+            )
+        } else {
+            Text("Verificar")
+        }
+    }
+
+    TextButton(
+        onClick = viewModel::cancelMfa,
+        enabled = !state.submitting,
+        modifier = Modifier.padding(top = 8.dp),
+    ) {
+        Text("Volver")
     }
 }

@@ -28,6 +28,7 @@ import pbis.bike.finder.data.remote.dto.BicicletaResumenDto
 import pbis.bike.finder.data.remote.dto.ConfirmPasswordResetDto
 import pbis.bike.finder.data.remote.dto.LoginRequestDto
 import pbis.bike.finder.data.remote.dto.LogoutRequestDto
+import pbis.bike.finder.data.remote.dto.MfaLoginRequestDto
 import pbis.bike.finder.data.remote.dto.RefreshTokenRequestDto
 import pbis.bike.finder.data.remote.dto.RegisterRequestDto
 import pbis.bike.finder.data.remote.dto.RequestPasswordResetDto
@@ -76,6 +77,7 @@ class DashboardViewModelTest {
         override suspend fun me(): UserInfoDto = profile()
 
         override suspend fun login(body: LoginRequestDto) = notUsed()
+        override suspend fun loginWith2fa(body: MfaLoginRequestDto) = notUsed()
         override suspend fun register(body: RegisterRequestDto) = notUsed()
         override suspend fun refresh(body: RefreshTokenRequestDto): Response<AuthResponseDto> =
             notUsed()

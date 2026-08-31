@@ -43,6 +43,7 @@ import pbis.bike.finder.data.remote.dto.LocalityListResponseDto
 import pbis.bike.finder.data.remote.dto.LocalitySearchResponseDto
 import pbis.bike.finder.data.remote.dto.LoginRequestDto
 import pbis.bike.finder.data.remote.dto.LogoutRequestDto
+import pbis.bike.finder.data.remote.dto.MfaLoginRequestDto
 import pbis.bike.finder.data.remote.dto.PdfGeneratedDto
 import pbis.bike.finder.data.remote.dto.RefreshTokenRequestDto
 import pbis.bike.finder.data.remote.dto.RegisterRequestDto
@@ -168,6 +169,7 @@ class ReportTheftViewModelTest {
         )
 
         override suspend fun login(body: LoginRequestDto) = notUsed()
+        override suspend fun loginWith2fa(body: MfaLoginRequestDto) = notUsed()
         override suspend fun register(body: RegisterRequestDto) = notUsed()
         override suspend fun refresh(body: RefreshTokenRequestDto): Response<AuthResponseDto> =
             notUsed()
