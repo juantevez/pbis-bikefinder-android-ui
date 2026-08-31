@@ -8,6 +8,7 @@ import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
@@ -136,8 +137,13 @@ class BackendIntegrationTest {
 
     private suspend fun token(): String {
         cachedToken?.let { return it }
-        return authApi.login(LoginRequestDto(EMAIL, PASSWORD)).accessToken
-            .also { cachedToken = it }
+        // requireNotNull y no !!: si la cuenta del test tuviera segundo factor,
+        // el login devuelve un challenge sin tokens y el mensaje dice por qué
+        // falló en vez de un NPE a secas.
+        val body = authApi.login(LoginRequestDto(EMAIL, PASSWORD))
+        return requireNotNull(body.accessToken) {
+            "El login no devolvió accessToken (mfaRequired=${body.mfaRequired})"
+        }.also { cachedToken = it }
     }
 
     private fun authedBicycleApi(token: String): BicycleApi {
@@ -161,8 +167,11 @@ class BackendIntegrationTest {
 
         val response = authApi.login(LoginRequestDto(EMAIL, PASSWORD))
 
-        assertTrue(response.accessToken.isNotBlank())
-        assertTrue(response.refreshToken.isNotBlank())
+        // La cuenta del test no tiene segundo factor: si lo tuviera, esto sería
+        // un challenge y los tokens vendrían en null.
+        assertFalse(response.mfaRequired)
+        assertTrue(response.accessToken!!.isNotBlank())
+        assertTrue(response.refreshToken!!.isNotBlank())
         assertEquals(EMAIL, response.user?.email)
         // expiresIn está en MILISEGUNDOS, contra la convención de OAuth 2.
         // Si algún día el backend lo pasa a segundos, esto lo detecta.
@@ -176,12 +185,12 @@ class BackendIntegrationTest {
 
         val login = authApi.login(LoginRequestDto(EMAIL, PASSWORD))
         val refreshed = authApi.refresh(
-            pbis.bike.finder.data.remote.dto.RefreshTokenRequestDto(login.refreshToken)
+            pbis.bike.finder.data.remote.dto.RefreshTokenRequestDto(login.refreshToken!!)
         )
 
         assertTrue(refreshed.isSuccessful)
         val body = refreshed.body()!!
-        assertTrue(body.accessToken.isNotBlank())
+        assertTrue(body.accessToken!!.isNotBlank())
         // El refresh token también cambia: guardar sólo el access dejaría al
         // siguiente refresh usando uno que el backend ya invalidó.
         assertTrue(body.refreshToken != login.refreshToken)

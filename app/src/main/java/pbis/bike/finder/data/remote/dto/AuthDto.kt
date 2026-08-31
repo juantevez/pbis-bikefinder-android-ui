@@ -47,7 +47,18 @@ data class ConfirmPasswordResetDto(
 )
 
 /**
- * Respuesta de `/auth/login`, `/auth/register` y `/auth/refresh`.
+ * Respuesta de `/auth/login`, `/auth/register`, `/auth/refresh` y
+ * `/auth/login/2fa`.
+ *
+ * **Tiene dos formas.** La normal trae los tokens y el perfil. La otra —cuando
+ * la cuenta tiene segundo factor— llega con `mfaRequired = true`, un `mfaToken`
+ * y **todo lo demás en null**: la contraseña era correcta pero el login todavía
+ * no terminó. Se completa con `POST /auth/login/2fa`.
+ *
+ * Por eso los tokens son nullable. Antes eran `String` no-nulo sin default, y
+ * kotlinx.serialization lanza `SerializationException` ante un `null` en un
+ * campo así: con 2FA activo el login fallaba con un error de deserialización,
+ * que en pantalla se veía como un "no se pudo iniciar sesión" sin explicación.
  *
  * `expiresIn` / `expiresAt` los ignoraba el front web, que renovaba de forma
  * reactiva: mandaba la request, comía el 401 y recién ahí refrescaba. Con la
@@ -56,8 +67,8 @@ data class ConfirmPasswordResetDto(
  */
 @Serializable
 data class AuthResponseDto(
-    val accessToken: String,
-    val refreshToken: String,
+    val accessToken: String? = null,
+    val refreshToken: String? = null,
     val tokenType: String? = null,
     /**
      * Vida del access token en **milisegundos**, no en segundos.
@@ -71,6 +82,25 @@ data class AuthResponseDto(
     val expiresIn: Long? = null,
     val expiresAt: Instant? = null,
     val user: UserInfoDto? = null,
+    /** `true` cuando falta el segundo factor: no hay tokens en esta respuesta. */
+    val mfaRequired: Boolean = false,
+    /**
+     * Challenge de la primera etapa, con cinco minutos de vida. Sólo sirve para
+     * canjearlo en `/auth/login/2fa`: no autentica requests —el backend exige
+     * `type=access` en el bearer— así que no va al [pbis.bike.finder.data.local.TokenStorage].
+     */
+    val mfaToken: String? = null,
+)
+
+/**
+ * Segunda etapa del login. El `code` son los 6 dígitos de la app de
+ * autenticación **o** uno de los códigos de recuperación: el backend prueba los
+ * dos contra el mismo campo, así que la app no necesita preguntar cuál es cuál.
+ */
+@Serializable
+data class MfaLoginRequestDto(
+    val mfaToken: String,
+    val code: String,
 )
 
 /**

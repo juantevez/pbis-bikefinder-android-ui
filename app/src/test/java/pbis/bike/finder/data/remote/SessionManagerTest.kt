@@ -15,6 +15,7 @@ import pbis.bike.finder.data.remote.dto.AuthResponseDto
 import pbis.bike.finder.data.remote.dto.ConfirmPasswordResetDto
 import pbis.bike.finder.data.remote.dto.LoginRequestDto
 import pbis.bike.finder.data.remote.dto.LogoutRequestDto
+import pbis.bike.finder.data.remote.dto.MfaLoginRequestDto
 import pbis.bike.finder.data.remote.dto.RefreshTokenRequestDto
 import pbis.bike.finder.data.remote.dto.RegisterRequestDto
 import pbis.bike.finder.data.remote.dto.RequestPasswordResetDto
@@ -65,6 +66,7 @@ class SessionManagerTest {
         override suspend fun refresh(body: RefreshTokenRequestDto) = onRefresh()
 
         override suspend fun login(body: LoginRequestDto) = notUsed()
+        override suspend fun loginWith2fa(body: MfaLoginRequestDto) = notUsed()
         override suspend fun register(body: RegisterRequestDto) = notUsed()
         override suspend fun logout(body: LogoutRequestDto) = notUsed()
         override suspend fun me(): UserInfoDto = notUsed()

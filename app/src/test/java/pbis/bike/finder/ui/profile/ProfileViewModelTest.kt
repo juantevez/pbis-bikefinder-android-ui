@@ -38,6 +38,7 @@ import pbis.bike.finder.data.remote.dto.LocalityListResponseDto
 import pbis.bike.finder.data.remote.dto.LocalitySearchResponseDto
 import pbis.bike.finder.data.remote.dto.LoginRequestDto
 import pbis.bike.finder.data.remote.dto.LogoutRequestDto
+import pbis.bike.finder.data.remote.dto.MfaLoginRequestDto
 import pbis.bike.finder.data.remote.dto.NotificationPreferencesDto
 import pbis.bike.finder.data.remote.dto.NotificationPreferencesRequestDto
 import pbis.bike.finder.data.remote.dto.RefreshTokenRequestDto
@@ -96,6 +97,7 @@ class ProfileViewModelTest {
         }
 
         override suspend fun login(body: LoginRequestDto) = notUsed()
+        override suspend fun loginWith2fa(body: MfaLoginRequestDto) = notUsed()
         override suspend fun register(body: RegisterRequestDto) = notUsed()
         override suspend fun refresh(body: RefreshTokenRequestDto): Response<AuthResponseDto> =
             notUsed()

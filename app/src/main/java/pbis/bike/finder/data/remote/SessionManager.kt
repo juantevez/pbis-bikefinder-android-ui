@@ -94,7 +94,17 @@ class SessionManager @Inject constructor(
         if (!response.isSuccessful) return@withLock RefreshOutcome.Expired
 
         val body = response.body() ?: return@withLock RefreshOutcome.Expired
-        tokenStore.save(body.accessToken, body.refreshToken)
+
+        // Los tokens son nullable en el DTO desde que /auth/login puede devolver
+        // un challenge de segundo factor en vez de una sesión. Un refresh 200 sin
+        // tokens no tiene ese significado —no existe un "refresh con 2FA"— así
+        // que es una respuesta que no se entiende: se trata como sesión vencida,
+        // que es el camino seguro. Guardar un null dejaría al usuario adentro con
+        // un `Authorization: Bearer null`.
+        val accessToken = body.accessToken ?: return@withLock RefreshOutcome.Expired
+        val refreshedToken = body.refreshToken ?: return@withLock RefreshOutcome.Expired
+
+        tokenStore.save(accessToken, refreshedToken)
         RefreshOutcome.Ok
     }
 
