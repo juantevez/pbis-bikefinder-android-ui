@@ -6,9 +6,12 @@ import pbis.bike.finder.data.local.TokenStorage
 import pbis.bike.finder.data.remote.ApiResult
 import pbis.bike.finder.data.remote.SessionManager
 import pbis.bike.finder.data.remote.apiCall
+import pbis.bike.finder.data.remote.map
 import pbis.bike.finder.data.remote.api.AuthApi
+import pbis.bike.finder.data.remote.dto.AuthResponseDto
 import pbis.bike.finder.data.remote.dto.LoginRequestDto
 import pbis.bike.finder.data.remote.dto.LogoutRequestDto
+import pbis.bike.finder.data.remote.dto.MfaLoginRequestDto
 import pbis.bike.finder.data.remote.dto.RegisterRequestDto
 import pbis.bike.finder.data.remote.dto.UpdateProfileRequestDto
 import pbis.bike.finder.data.remote.dto.UserInfoDto
@@ -25,6 +28,23 @@ import javax.inject.Singleton
  * siguiente que entre. Acá el equivalente es memoria del proceso — si la app se
  * reinicia, se vuelve a pedir con `/auth/me`. Es un cache, no la fuente de verdad.
  */
+/**
+ * Cómo terminó un `login()`.
+ *
+ * Existe porque la contraseña correcta ya no implica sesión: si la cuenta tiene
+ * segundo factor, el backend devuelve un challenge y falta una etapa. Devolver
+ * `ApiResult<UserInfoDto>` obligaría a representar ese estado como un error, que
+ * es exactamente lo que no es.
+ */
+sealed interface LoginOutcome {
+
+    /** Sesión abierta: los tokens ya están guardados. */
+    data class Completed(val profile: UserInfoDto) : LoginOutcome
+
+    /** Falta el código. El challenge vale cinco minutos y NO es una sesión. */
+    data class MfaRequired(val mfaToken: String) : LoginOutcome
+}
+
 @Singleton
 class AuthRepository @Inject constructor(
     private val api: AuthApi,
@@ -43,25 +63,76 @@ class AuthRepository @Inject constructor(
      * `/auth/login` devuelve el usuario completo junto con los tokens, así que
      * cachearlo evita un `/auth/me` en el arranque de la sesión.
      */
-    suspend fun login(email: String, password: String): ApiResult<UserInfoDto> {
+    suspend fun login(email: String, password: String): ApiResult<LoginOutcome> {
         val result = apiCall(json) { api.login(LoginRequestDto(email.trim(), password)) }
 
         return when (result) {
             is ApiResult.Success -> {
                 val body = result.data
-                tokenStore.save(body.accessToken, body.refreshToken)
-                cachedProfile = body.user
-                body.user
-                    ?.let { ApiResult.Success(it) }
-                    // 200 con tokens pero sin usuario: la sesión sirve igual, así
-                    // que se pide el perfil aparte en vez de fallar el login.
-                    ?: profile()
+                // Con segundo factor la respuesta es 200 pero sin tokens: el
+                // challenge se devuelve a quien llamó y NO se guarda nada. Meterlo
+                // en el TokenStorage dejaría media sesión en disco.
+                if (body.mfaRequired) {
+                    body.mfaToken
+                        ?.let { ApiResult.Success(LoginOutcome.MfaRequired(it)) }
+                        ?: ApiResult.Malformed(
+                            IllegalStateException("mfaRequired sin mfaToken"),
+                        )
+                } else {
+                    abrirSesion(body).map { LoginOutcome.Completed(it) }
+                }
             }
 
             is ApiResult.NoNetwork -> ApiResult.NoNetwork
             is ApiResult.HttpError -> result
             is ApiResult.Malformed -> result
         }
+    }
+
+    /**
+     * Segunda etapa: canjea el challenge más el código por la sesión.
+     *
+     * El `code` puede ser el de la app o uno de recuperación; los distingue el
+     * backend, no la app.
+     */
+    suspend fun verifyMfa(mfaToken: String, code: String): ApiResult<UserInfoDto> {
+        val result = apiCall(json) {
+            api.loginWith2fa(MfaLoginRequestDto(mfaToken, code.trim()))
+        }
+
+        return when (result) {
+            is ApiResult.Success -> abrirSesion(result.data)
+            is ApiResult.NoNetwork -> ApiResult.NoNetwork
+            is ApiResult.HttpError -> result
+            is ApiResult.Malformed -> result
+        }
+    }
+
+    /**
+     * Guarda los tokens de una respuesta que debería traerlos y deja el perfil
+     * en cache.
+     *
+     * La guarda de los nulls no es paranoia de tipos: desde que existe el
+     * segundo factor hay respuestas 200 legítimas sin tokens, y confundir una de
+     * esas con una sesión dejaría al usuario "adentro" con un
+     * `Authorization: Bearer null`.
+     */
+    private suspend fun abrirSesion(body: AuthResponseDto): ApiResult<UserInfoDto> {
+        val accessToken = body.accessToken
+        val refreshToken = body.refreshToken
+        if (accessToken == null || refreshToken == null) {
+            return ApiResult.Malformed(
+                IllegalStateException("Respuesta de sesión sin tokens"),
+            )
+        }
+
+        tokenStore.save(accessToken, refreshToken)
+        cachedProfile = body.user
+        return body.user
+            ?.let { ApiResult.Success(it) }
+            // 200 con tokens pero sin usuario: la sesión sirve igual, así que se
+            // pide el perfil aparte en vez de fallar el login.
+            ?: profile()
     }
 
     suspend fun register(
@@ -74,12 +145,10 @@ class AuthRepository @Inject constructor(
         }
 
         return when (result) {
-            is ApiResult.Success -> {
-                val body = result.data
-                tokenStore.save(body.accessToken, body.refreshToken)
-                cachedProfile = body.user
-                body.user?.let { ApiResult.Success(it) } ?: profile()
-            }
+            // Una cuenta recién creada nunca tiene segundo factor, así que acá
+            // siempre vienen los tokens; se pasa por abrirSesion igual para no
+            // duplicar la guarda.
+            is ApiResult.Success -> abrirSesion(result.data)
 
             is ApiResult.NoNetwork -> ApiResult.NoNetwork
             is ApiResult.HttpError -> result

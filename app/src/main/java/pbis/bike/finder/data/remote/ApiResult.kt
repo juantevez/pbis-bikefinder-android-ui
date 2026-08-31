@@ -57,6 +57,21 @@ sealed interface ApiResult<out T> {
 }
 
 /**
+ * Transforma el dato de un [ApiResult.Success] y deja pasar los tres casos de
+ * error tal cual.
+ *
+ * Sin esto, cambiar el tipo que devuelve un repositorio obliga a reescribir el
+ * `when` de cuatro ramas en cada llamador, y tres de esas ramas son siempre la
+ * misma línea.
+ */
+inline fun <T, R> ApiResult<T>.map(transform: (T) -> R): ApiResult<R> = when (this) {
+    is ApiResult.Success -> ApiResult.Success(transform(data))
+    is ApiResult.NoNetwork -> ApiResult.NoNetwork
+    is ApiResult.HttpError -> this
+    is ApiResult.Malformed -> this
+}
+
+/**
  * Envuelve una llamada de Retrofit traduciendo excepciones a [ApiResult].
  *
  * Retrofit lanza [HttpException] ante un status de error y [IOException] cuando
