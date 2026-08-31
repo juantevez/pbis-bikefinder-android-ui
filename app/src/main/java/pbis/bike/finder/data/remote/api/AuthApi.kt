@@ -5,6 +5,7 @@ import pbis.bike.finder.data.remote.dto.AuthResponseDto
 import pbis.bike.finder.data.remote.dto.ConfirmPasswordResetDto
 import pbis.bike.finder.data.remote.dto.LoginRequestDto
 import pbis.bike.finder.data.remote.dto.LogoutRequestDto
+import pbis.bike.finder.data.remote.dto.MfaLoginRequestDto
 import pbis.bike.finder.data.remote.dto.RefreshTokenRequestDto
 import pbis.bike.finder.data.remote.dto.RegisterRequestDto
 import pbis.bike.finder.data.remote.dto.RequestPasswordResetDto
@@ -31,6 +32,14 @@ interface AuthApi {
     @Headers("$HEADER_SKIP_AUTH: true")
     @POST("auth/login")
     suspend fun login(@Body body: LoginRequestDto): AuthResponseDto
+
+    /**
+     * Segunda etapa del login. Sin Bearer: el usuario todavía no tiene sesión —
+     * lo que presenta es el challenge de la primera etapa, en el body.
+     */
+    @Headers("$HEADER_SKIP_AUTH: true")
+    @POST("auth/login/2fa")
+    suspend fun loginWith2fa(@Body body: MfaLoginRequestDto): AuthResponseDto
 
     @Headers("$HEADER_SKIP_AUTH: true")
     @POST("auth/register")

@@ -58,6 +58,49 @@ class DtoContractTest {
     }
 
     @Test
+    fun `el challenge de segundo factor deserializa sin tokens`() {
+        // La forma real que devuelve /auth/login cuando la cuenta tiene 2FA:
+        // 200, mfaRequired en true y TODO lo demás en null. Con accessToken y
+        // refreshToken declarados como String no-nulo —como estaban— esto tiraba
+        // SerializationException y el login era imposible.
+        val payload = """
+            {
+              "accessToken": null,
+              "refreshToken": null,
+              "tokenType": null,
+              "expiresIn": null,
+              "expiresAt": null,
+              "user": null,
+              "mfaRequired": true,
+              "mfaToken": "eyJhbGciOi..."
+            }
+        """.trimIndent()
+
+        val res = json.decodeFromString<AuthResponseDto>(payload)
+
+        assertTrue(res.mfaRequired)
+        assertEquals("eyJhbGciOi...", res.mfaToken)
+        assertNull(res.accessToken)
+        assertNull(res.refreshToken)
+        assertNull(res.user)
+    }
+
+    @Test
+    fun `una respuesta sin los campos de 2FA sigue siendo un login normal`() {
+        // Los defaults tienen que aguantar un backend viejo —o el /auth/refresh,
+        // que nunca manda esos campos— sin declarar mfaRequired en false.
+        val payload = """
+            { "accessToken": "abc", "refreshToken": "def" }
+        """.trimIndent()
+
+        val res = json.decodeFromString<AuthResponseDto>(payload)
+
+        assertEquals("abc", res.accessToken)
+        assertTrue(!res.mfaRequired)
+        assertNull(res.mfaToken)
+    }
+
+    @Test
     fun `un campo nuevo en el backend no rompe la deserializacion`() {
         // ignoreUnknownKeys: el backend puede sumar campos sin coordinar un
         // release del cliente. Sin esto, agregar una property a un record de
