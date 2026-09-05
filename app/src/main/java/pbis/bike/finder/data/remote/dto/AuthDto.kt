@@ -139,8 +139,15 @@ data class UserLocationDto(
 )
 
 /**
- * `PUT /auth/me`. Todos los campos son opcionales y **null significa "no
- * tocar"** — por eso `explicitNulls = false` en [BikeFinderJson] es seguro acá.
+ * `PUT /auth/me`. Todos los campos son opcionales, pero **no todos significan lo
+ * mismo cuando van en null**, y la diferencia importa:
+ *
+ *  - `fullName`, `phoneNumber`, `gender` y `birthDate` se asignan bajo un
+ *    `if (x != null)` en `UpdateUserProfileServiceImpl`: null es "no tocar".
+ *  - **Los cuatro campos de la ubicación se asignan siempre.** Ahí null —que con
+ *    `explicitNulls = false` ni siquiera viaja— **borra el campo**. Mandar la
+ *    ubicación a medias porque location-service no respondió la vacía en la base.
+ *    Ver `nombreElegido` en `ProfileViewModel`.
  *
  * Manda IDs *y* nombres de la jerarquía geográfica: es denormalización
  * deliberada del backend, no un descuido del cliente.

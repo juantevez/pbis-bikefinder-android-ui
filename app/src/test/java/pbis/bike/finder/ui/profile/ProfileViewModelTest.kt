@@ -112,12 +112,16 @@ class ProfileViewModelTest {
         private fun notUsed(): Nothing = throw UnsupportedOperationException()
     }
 
-    private class FakeGeoApi : GeoApi {
+    private class FakeGeoApi(
+        var countries: () -> CountryListResponseDto = {
+            CountryListResponseDto(
+                countries = listOf(CountryDto(id = 1, name = "Argentina", isoCode2 = "AR")),
+            )
+        },
+    ) : GeoApi {
         private fun notUsed(): Nothing = throw UnsupportedOperationException()
 
-        override suspend fun countries() = CountryListResponseDto(
-            countries = listOf(CountryDto(id = 1, name = "Argentina", isoCode2 = "AR")),
-        )
+        override suspend fun countries() = countries.invoke()
 
         override suspend fun provinces(countryId: Int) = AdminLevel1ListResponseDto(
             items = listOf(
@@ -290,17 +294,92 @@ class ProfileViewModelTest {
         }
 
     @Test
-    fun `sin ubicación guardada se preselecciona Argentina`() = runTest(dispatcher) {
+    fun `sin ubicación guardada no se preselecciona ningún país`() = runTest(dispatcher) {
         val vm = viewModel()
         advanceUntilIdle()
 
         vm.enterEditMode()
         advanceUntilIdle()
 
-        // Sin `location` en el perfil no hay nada que restaurar, así que tampoco
-        // se toca el país: el usuario todavía no eligió nada.
+        // Había un fallback a Argentina y era silencioso en los dos sentidos: la
+        // vista decía "No especificado" mientras el formulario mostraba Argentina,
+        // y a alguien cuyo país no matcheara se lo pisaba al guardar.
+        assertNull(vm.state.value.countryId)
         assertNull(vm.state.value.provinceId)
     }
+
+    @Test
+    fun `con el catálogo caído la ubicación guardada no se pierde al guardar`() =
+        runTest(dispatcher) {
+            // `PUT /auth/me` no es un parche para la ubicación: los cuatro campos
+            // se asignan siempre, así que un null los borra. Sin la guarda, abrir
+            // el formulario con location-service caído y guardar cualquier otra
+            // cosa vaciaba la ubicación sin un solo error a la vista.
+            val authApi = FakeAuthApi {
+                UserInfoDto(
+                    id = "u-1",
+                    email = "juan@example.com",
+                    location = UserLocationDto(
+                        localityId = 1000,
+                        localityName = "Ramos Mejía",
+                        departmentName = "La Matanza",
+                        provinceName = "Buenos Aires",
+                        countryName = "Argentina",
+                    ),
+                )
+            }
+            val geoApi = FakeGeoApi(countries = { throw java.io.IOException("sin red") })
+            val vm = viewModel(authApi = authApi, geoApi = geoApi)
+            advanceUntilIdle()
+
+            vm.enterEditMode()
+            advanceUntilIdle()
+            vm.onFullNameChange("Juan Tevez")
+            vm.save()
+            advanceUntilIdle()
+
+            val sent = authApi.lastUpdate!!
+            assertEquals(1000, sent.localityId)
+            assertEquals("Ramos Mejía", sent.localityName)
+            assertEquals("La Matanza", sent.departmentName)
+            assertEquals("Buenos Aires", sent.provinceName)
+            assertEquals("Argentina", sent.countryName)
+            // Y se dice, en vez de dejarlo pasar en silencio como hacía la web.
+            assertNotNull(vm.state.value.geoError)
+        }
+
+    @Test
+    fun `un nivel que sí se pudo elegir y quedó vacío viaja como null`() =
+        runTest(dispatcher) {
+            // Si la lista está y el usuario no eligió nada, ahí el null es la
+            // respuesta correcta: pudo elegir y decidió dejarlo vacío.
+            val authApi = FakeAuthApi {
+                UserInfoDto(
+                    id = "u-1",
+                    email = "juan@example.com",
+                    location = UserLocationDto(
+                        localityId = 1000,
+                        localityName = "Ramos Mejía",
+                        countryName = "Argentina",
+                    ),
+                )
+            }
+            val vm = viewModel(authApi = authApi)
+            advanceUntilIdle()
+
+            vm.enterEditMode()
+            advanceUntilIdle()
+            vm.selectCountry(null)
+            advanceUntilIdle()
+            vm.save()
+            advanceUntilIdle()
+
+            // Y toda la cadena de abajo también: limpiar el país es limpiar la
+            // ubicación, no dejarla a medias con los nombres viejos.
+            assertNull(authApi.lastUpdate!!.countryName)
+            assertNull(authApi.lastUpdate!!.localityName)
+            assertNull(authApi.lastUpdate!!.localityId)
+        }
 
     @Test
     fun `cambiar de provincia limpia los niveles de abajo`() = runTest(dispatcher) {

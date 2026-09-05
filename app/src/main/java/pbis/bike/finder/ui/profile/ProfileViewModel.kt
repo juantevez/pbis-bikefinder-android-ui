@@ -29,7 +29,8 @@ import javax.inject.Inject
 
 private const val PROFILE_ERROR = "No pudimos cargar tu perfil."
 private const val SAVE_ERROR = "No pudimos guardar los cambios."
-private const val GEO_ERROR = "No pudimos cargar la lista de ubicaciones."
+private const val GEO_ERROR =
+    "No pudimos cargar la lista de ubicaciones. Tu ubicación queda como está."
 private const val NOTIF_LOAD_ERROR =
     "No pudimos cargar tus preferencias de aviso. Reintentá en un momento."
 private const val NOTIF_SAVE_ERROR =
@@ -215,10 +216,20 @@ class ProfileViewModel @Inject constructor(
     private suspend fun restoreSavedLocation(countries: List<CountryDto>) {
         val saved = _state.value.profile?.location ?: return
 
-        // Sin país guardado se preselecciona Argentina, igual que el front web:
-        // es el único país con datos cargados y ahorra un desplegable.
+        // **Sin país guardado no se preselecciona nada.** Había un fallback a
+        // Argentina y hacía dos cosas mal, las dos en silencio:
+        //
+        //   1. Con el país vacío en el perfil, la vista decía "No especificado" y
+        //      el formulario mostraba Argentina: un valor que no está guardado y
+        //      que el usuario no tiene cómo distinguir de uno que sí.
+        //   2. Con un país que no fuera Argentina era peor. El fallback corre
+        //      cuando el nombre guardado no matchea —un acento raro, un renombre
+        //      del catálogo— y ahí a alguien con el país en Chile le mostraba
+        //      Argentina y se lo pisaba al guardar.
+        //
+        // Sin país guardado la cadena de abajo queda vacía, que es lo que
+        // corresponde: no hay de dónde deducir el resto.
         val country = countries.firstOrNull { it.name.matchesName(saved.countryName) }
-            ?: countries.firstOrNull { it.isoCode2 == "AR" }
             ?: return
         val provinces = fetchProvinces(country.id) ?: return
         _state.update { it.copy(countryId = country.id, provinces = provinces) }
@@ -365,20 +376,41 @@ class ProfileViewModel @Inject constructor(
         _state.update { it.copy(saving = true, formError = null) }
 
         viewModelScope.launch {
+            val guardada = current.profile?.location
+            // "La lista está vacía" no alcanza para decidir: también queda vacía
+            // cuando el usuario limpió el nivel de arriba a propósito. Lo que
+            // habilita el fallback es que además haya fallado el catálogo.
+            val falloElCatalogo = current.geoError != null
+
             val request = UpdateProfileRequestDto(
                 fullName = current.fullName.trim().ifBlank { null },
                 phoneNumber = phone.ifBlank { null },
                 gender = current.gender?.name,
                 birthDate = current.birthDate,
-                localityId = current.localityId,
-                localityName = current.localities
-                    .firstOrNull { it.id == current.localityId }?.name,
-                departmentName = current.departments
-                    .firstOrNull { it.id == current.departmentId }?.name,
-                provinceName = current.provinces
-                    .firstOrNull { it.id == current.provinceId }?.name,
-                countryName = current.countries
-                    .firstOrNull { it.id == current.countryId }?.name,
+                localityId = current.localityId
+                    ?: guardada?.localityId
+                        ?.takeIf { falloElCatalogo && current.localities.isEmpty() },
+                localityName = nombreElegido(
+                    noSePudoCargar = falloElCatalogo && current.localities.isEmpty(),
+                    elegido = current.localities.firstOrNull { it.id == current.localityId }?.name,
+                    guardado = guardada?.localityName,
+                ),
+                departmentName = nombreElegido(
+                    noSePudoCargar = falloElCatalogo && current.departments.isEmpty(),
+                    elegido = current.departments
+                        .firstOrNull { it.id == current.departmentId }?.name,
+                    guardado = guardada?.departmentName,
+                ),
+                provinceName = nombreElegido(
+                    noSePudoCargar = falloElCatalogo && current.provinces.isEmpty(),
+                    elegido = current.provinces.firstOrNull { it.id == current.provinceId }?.name,
+                    guardado = guardada?.provinceName,
+                ),
+                countryName = nombreElegido(
+                    noSePudoCargar = falloElCatalogo && current.countries.isEmpty(),
+                    elegido = current.countries.firstOrNull { it.id == current.countryId }?.name,
+                    guardado = guardada?.countryName,
+                ),
             )
 
             when (val result = authRepository.updateProfile(request)) {
@@ -397,6 +429,31 @@ class ProfileViewModel @Inject constructor(
             }
         }
     }
+
+    /**
+     * El nombre elegido en un nivel de la cascada, con una salvedad importante:
+     * si la lista **no se pudo cargar** se devuelve lo que ya estaba guardado en
+     * vez de null.
+     *
+     * No alcanza con mirar si la lista está vacía —también lo está cuando el
+     * usuario limpió el nivel de arriba a propósito, y ahí resucitar el valor
+     * viejo sería ignorarlo—: hace falta que además el catálogo haya fallado.
+     *
+     * `PUT /auth/me` **no es un parche para la ubicación**: `fullName`, teléfono,
+     * género y fecha van con un `if (x != null)`, pero los cuatro campos de la
+     * ubicación se asignan siempre. Un null —que con `explicitNulls = false` ni
+     * siquiera viaja— los borra. Sin esta guarda, location-service caído al abrir
+     * el formulario alcanzaba para perder la ubicación al guardar, sin un solo
+     * error a la vista.
+     *
+     * Si la lista **sí** se cargó y el usuario no eligió nada, ahí el null es la
+     * respuesta correcta: pudo elegir y decidió dejarlo vacío.
+     */
+    private fun nombreElegido(
+        noSePudoCargar: Boolean,
+        elegido: String?,
+        guardado: String?,
+    ): String? = if (noSePudoCargar) guardado else elegido
 
     // ── Notificaciones ───────────────────────────────────────────────────────
 
