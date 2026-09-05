@@ -5,7 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -13,8 +13,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -296,11 +294,19 @@ private fun PhotoGallery(
 ) {
     DetailSection("Fotos") {
         when {
-            photos.isNotEmpty() -> LazyRow(
-                contentPadding = PaddingValues(vertical = 4.dp),
+            // Las fotos se acomodan en filas y bajan: la galeria de la web es una
+            // grilla que envuelve (`repeat(auto-fill, minmax(120px, 1fr))`), no
+            // un carrusel. Con una LazyRow entraban dos —a 140dp mas 8 de
+            // separacion, el ancho util de la tarjeta en un telefono de 360dp da
+            // para 288— y la tercera arrancaba justo en el borde: no se veia ni
+            // asomar, asi que una bici con cuatro fotos aparentaba tener dos y
+            // nada invitaba a arrastrar. El alto fijo de la miniatura es lo que
+            // decide cuantas entran por fila, igual que el minmax de la web.
+            photos.isNotEmpty() -> FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                items(photos, key = { it.id }) { photo ->
+                photos.forEach { photo ->
                     Box {
                         AsyncImage(
                             model = photo.url,
