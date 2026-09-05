@@ -31,6 +31,10 @@ import pbis.bike.finder.data.remote.dto.LogoutRequestDto
 import pbis.bike.finder.data.remote.dto.MfaLoginRequestDto
 import pbis.bike.finder.data.remote.dto.RefreshTokenRequestDto
 import pbis.bike.finder.data.remote.dto.RegisterRequestDto
+import pbis.bike.finder.data.remote.dto.RecoveryCodesDto
+import pbis.bike.finder.data.remote.dto.TotpCodeRequestDto
+import pbis.bike.finder.data.remote.dto.TotpSetupDto
+import pbis.bike.finder.data.remote.dto.TotpStatusDto
 import pbis.bike.finder.data.remote.dto.RequestPasswordResetDto
 import pbis.bike.finder.data.remote.dto.ResendVerificationDto
 import pbis.bike.finder.data.remote.dto.ResumenUsuarioDto
@@ -83,6 +87,13 @@ class DashboardViewModelTest {
             notUsed()
 
         override suspend fun logout(body: LogoutRequestDto) = notUsed()
+        override suspend fun totpStatus(): TotpStatusDto = notUsed()
+        override suspend fun totpSetup(): TotpSetupDto = notUsed()
+        override suspend fun totpConfirm(body: TotpCodeRequestDto): RecoveryCodesDto = notUsed()
+        override suspend fun totpRecoveryCodes(body: TotpCodeRequestDto): RecoveryCodesDto =
+            notUsed()
+
+        override suspend fun totpDisable(body: TotpCodeRequestDto): Response<Unit> = notUsed()
         override suspend fun updateProfile(body: UpdateProfileRequestDto): UserInfoDto = notUsed()
         override suspend fun verifyEmail(body: VerifyEmailDto) = notUsed()
         override suspend fun resendVerification(body: ResendVerificationDto) = notUsed()

@@ -17,6 +17,8 @@ import pbis.bike.finder.data.remote.dto.E164_REGEX
 import pbis.bike.finder.data.remote.dto.Gender
 import pbis.bike.finder.data.remote.dto.LocalityDto
 import pbis.bike.finder.data.remote.dto.NotificationPreferencesDto
+import pbis.bike.finder.data.remote.dto.TotpSetupDto
+import pbis.bike.finder.data.remote.dto.TotpStatusDto
 import pbis.bike.finder.data.remote.dto.UpdateProfileRequestDto
 import pbis.bike.finder.data.remote.dto.UserInfoDto
 import pbis.bike.finder.data.repository.AuthRepository
@@ -33,6 +35,8 @@ private const val PROFILE_ERROR = "No pudimos cargar tu perfil."
 private const val SAVE_ERROR = "No pudimos guardar los cambios."
 private const val GEO_ERROR =
     "No pudimos cargar la lista de ubicaciones. Tu ubicación queda como está."
+private const val TOTP_STATUS_ERROR =
+    "No pudimos consultar el estado de la verificación en dos pasos."
 private const val NOTIF_LOAD_ERROR =
     "No pudimos cargar tus preferencias de aviso. Reintentá en un momento."
 private const val NOTIF_SAVE_ERROR =
@@ -79,6 +83,27 @@ data class ProfileUiState(
     val etiquetaNivel2: LocationLabel = LocationLabels.NIVEL2_DEFAULT,
     val etiquetaLocalidad: LocationLabel = LocationLabels.LOCALIDAD_DEFAULT,
 
+    // ── Segundo factor ───────────────────────────────────────────────────────
+    /** Lo que dijo el backend. `null` = todavía no se sabe, o no se pudo consultar. */
+    val totp: TotpStatusDto? = null,
+    val totpError: String? = null,
+    val totpBusy: Boolean = false,
+    /**
+     * Alta en curso: el secreto y la URI `otpauth://`. **Vive sólo en memoria y
+     * sólo hasta confirmar**: el backend no lo devuelve nunca más, y guardarlo en
+     * el dispositivo sería dejar el segundo factor al lado de la sesión que
+     * protege.
+     */
+    val totpSetup: TotpSetupDto? = null,
+    val totpCode: String = "",
+    /** Qué operación está esperando un código en el diálogo. */
+    val totpPrompt: TotpPrompt? = null,
+    /**
+     * Los códigos de recuperación recién emitidos. Se muestran **una sola vez**:
+     * el backend guarda sólo su hash y no hay endpoint que los liste.
+     */
+    val recoveryCodes: List<String>? = null,
+
     // ── Notificaciones ───────────────────────────────────────────────────────
     val notifications: NotificationPreferencesDto? = null,
     val savingNotifications: Boolean = false,
@@ -123,6 +148,7 @@ class ProfileViewModel @Inject constructor(
     init {
         loadProfile()
         loadNotifications()
+        loadTotpStatus()
     }
 
     /**
@@ -549,6 +575,178 @@ class ProfileViewModel @Inject constructor(
         guardado: String?,
     ): String? = if (noSePudoCargar) guardado else elegido
 
+    // ── Segundo factor ───────────────────────────────────────────────────────
+
+    /**
+     * Pregunta el estado. Se llama al abrir la pantalla y **después de cada
+     * operación**: el factor se puede haber activado o dado de baja desde otro
+     * dispositivo, y asumir en qué quedó la pantalla es como termina un botón
+     * ofreciendo lo contrario de lo que corresponde.
+     */
+    fun loadTotpStatus() {
+        _state.update { it.copy(totpError = null) }
+
+        viewModelScope.launch {
+            when (val result = authRepository.totpStatus()) {
+                is ApiResult.Success -> _state.update { it.copy(totp = result.data) }
+
+                // Sin estado, el botón queda inerte: mismo criterio que las
+                // preferencias de aviso. Un botón que dice "Activar" sobre un
+                // factor que ya está activo es peor que un botón apagado.
+                else -> _state.update {
+                    it.copy(totp = null, totpError = result.toUserMessage(TOTP_STATUS_ERROR))
+                }
+            }
+        }
+    }
+
+    /**
+     * Empieza el alta: pide el secreto y muestra el panel de confirmación.
+     *
+     * Todavía no activa nada — el factor rige recién con [confirmTotpSetup].
+     */
+    fun startTotpSetup() {
+        if (_state.value.totpBusy) return
+        _state.update { it.copy(totpBusy = true, totpError = null) }
+
+        viewModelScope.launch {
+            when (val result = authRepository.setupTotp()) {
+                is ApiResult.Success -> _state.update {
+                    it.copy(totpBusy = false, totpSetup = result.data, totpCode = "")
+                }
+
+                else -> _state.update {
+                    it.copy(
+                        totpBusy = false,
+                        totpError = result.toUserMessage(
+                            "No pudimos empezar la configuración.",
+                        ),
+                    )
+                }
+            }
+        }
+    }
+
+    fun onTotpCodeChange(value: String) =
+        _state.update { it.copy(totpCode = value.filter(Char::isDigit).take(6), totpError = null) }
+
+    fun confirmTotpSetup() {
+        val code = _state.value.totpCode.trim()
+        if (code.isBlank() || _state.value.totpBusy) return
+
+        _state.update { it.copy(totpBusy = true, totpError = null) }
+
+        viewModelScope.launch {
+            when (val result = authRepository.confirmTotp(code)) {
+                is ApiResult.Success -> {
+                    _state.update {
+                        it.copy(
+                            totpBusy = false,
+                            // El secreto se descarta apenas deja de hacer falta.
+                            totpSetup = null,
+                            totpCode = "",
+                            recoveryCodes = result.data.codes,
+                            message = "Verificación en dos pasos activada",
+                        )
+                    }
+                    loadTotpStatus()
+                }
+
+                else -> _state.update {
+                    it.copy(
+                        totpBusy = false,
+                        totpError = result.toUserMessage("Código inválido."),
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Abandona el alta.
+     *
+     * No se llama a `/disable`: el secreto quedó sin confirmar, no rige, y el
+     * próximo "Activar" lo reemplaza. Pedir un código para cancelar sería pedir
+     * justamente lo que el usuario no llegó a tener.
+     */
+    fun cancelTotpSetup() =
+        _state.update { it.copy(totpSetup = null, totpCode = "", totpError = null) }
+
+    /** Abre el diálogo que pide el código para regenerar o para dar de baja. */
+    fun askTotpCode(prompt: TotpPrompt) =
+        _state.update { it.copy(totpPrompt = prompt, totpCode = "", totpError = null) }
+
+    fun dismissTotpPrompt() =
+        _state.update { it.copy(totpPrompt = null, totpCode = "", totpError = null) }
+
+    fun submitTotpPrompt() {
+        val current = _state.value
+        val prompt = current.totpPrompt ?: return
+        val code = current.totpCode.trim()
+        if (code.isBlank() || current.totpBusy) return
+
+        _state.update { it.copy(totpBusy = true, totpError = null) }
+
+        viewModelScope.launch {
+            when (prompt) {
+                TotpPrompt.REGENERATE -> {
+                    when (val result = authRepository.regenerateRecoveryCodes(code)) {
+                        is ApiResult.Success -> {
+                            _state.update {
+                                it.copy(
+                                    totpBusy = false,
+                                    totpPrompt = null,
+                                    totpCode = "",
+                                    recoveryCodes = result.data.codes,
+                                    message = "Códigos nuevos. Los anteriores ya no sirven.",
+                                )
+                            }
+                            loadTotpStatus()
+                        }
+
+                        else -> _state.update {
+                            it.copy(
+                                totpBusy = false,
+                                totpError = result.toUserMessage(
+                                    "No pudimos generar los códigos.",
+                                ),
+                            )
+                        }
+                    }
+                }
+
+                TotpPrompt.DISABLE -> {
+                    when (val result = authRepository.disableTotp(code)) {
+                        is ApiResult.Success -> {
+                            _state.update {
+                                it.copy(
+                                    totpBusy = false,
+                                    totpPrompt = null,
+                                    totpCode = "",
+                                    // Los códigos que hubiera en pantalla dejaron
+                                    // de servir junto con el factor.
+                                    recoveryCodes = null,
+                                    message = "Verificación en dos pasos desactivada",
+                                )
+                            }
+                            loadTotpStatus()
+                        }
+
+                        else -> _state.update {
+                            it.copy(
+                                totpBusy = false,
+                                totpError = result.toUserMessage("No pudimos desactivarla."),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /** El usuario acusó recibo de los códigos. No se vuelven a mostrar. */
+    fun dismissRecoveryCodes() = _state.update { it.copy(recoveryCodes = null) }
+
     // ── Notificaciones ───────────────────────────────────────────────────────
 
     fun loadNotifications() {
@@ -621,3 +819,12 @@ class ProfileViewModel @Inject constructor(
         viewModelScope.launch { authRepository.logout() }
     }
 }
+
+/**
+ * La operación que está esperando un código en el diálogo.
+ *
+ * Las dos piden lo mismo —un código— pero no significan lo mismo: una emite
+ * códigos nuevos y la otra apaga el segundo factor, así que el diálogo tiene que
+ * poder decir cuál es y pintarse como corresponde.
+ */
+enum class TotpPrompt { REGENERATE, DISABLE }

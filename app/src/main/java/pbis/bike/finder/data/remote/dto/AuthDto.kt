@@ -103,6 +103,68 @@ data class MfaLoginRequestDto(
     val code: String,
 )
 
+// ── Segundo factor (TOTP) ────────────────────────────────────────────────────
+//
+// auth-service, `TotpController` bajo `/auth/2fa`. El alta es en dos pasos
+// —`/setup` genera el secreto, `/confirm` lo activa— y **el factor no rige hasta
+// confirmarlo**: un setup abandonado no deja la cuenta a medias.
+
+/**
+ * `GET /auth/2fa/status`.
+ *
+ * El estado lo dice el backend y no se infiere: `GET /auth/me` no habla de
+ * seguridad, así que hasta que existió este endpoint no había forma de saber si
+ * el factor estaba activo.
+ */
+@Serializable
+data class TotpStatusDto(
+    val enabled: Boolean = false,
+    /**
+     * Códigos de recuperación sin usar. Llegar a cero con el factor activo
+     * significa que perder el teléfono es perder la cuenta, así que hay que
+     * avisarlo antes de que pase.
+     */
+    val recoveryCodesRemaining: Long = 0,
+)
+
+/**
+ * `POST /auth/2fa/setup`.
+ *
+ * `secret` es la clave en Base32, para cargarla a mano. `provisioningUri` es la
+ * `otpauth://` que entiende cualquier app de autenticación — **lleva el secreto
+ * adentro**, así que no se manda a ningún tercero.
+ */
+@Serializable
+data class TotpSetupDto(
+    val secret: String,
+    val provisioningUri: String,
+)
+
+/**
+ * `POST /auth/2fa/confirm` y `POST /auth/2fa/recovery-codes`.
+ *
+ * Es la **única** respuesta que contiene los códigos: después sólo existe su
+ * hash y no hay endpoint que los liste. Si el usuario no los guarda ahora, la
+ * única salida es regenerarlos.
+ */
+@Serializable
+data class RecoveryCodesDto(
+    val codes: List<String> = emptyList(),
+)
+
+/**
+ * El código que confirma una operación sobre el segundo factor.
+ *
+ * En `/confirm` y `/recovery-codes` el backend exige seis dígitos; en `/disable`
+ * acepta además uno de recuperación, que es más largo y lleva guiones. Es un
+ * solo DTO porque el campo es el mismo: la validación de forma la hace el
+ * servidor, que es el único que sabe cuál de los dos formatos corresponde.
+ */
+@Serializable
+data class TotpCodeRequestDto(
+    val code: String,
+)
+
 /**
  * Perfil del usuario. Es el MISMO record que devuelve `GET /auth/me` y
  * `PUT /auth/me` (`AuthResponseDto.UserInfoDto`), no un DTO aparte.

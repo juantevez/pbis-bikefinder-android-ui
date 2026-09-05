@@ -44,6 +44,10 @@ import pbis.bike.finder.data.remote.dto.NotificationPreferencesDto
 import pbis.bike.finder.data.remote.dto.NotificationPreferencesRequestDto
 import pbis.bike.finder.data.remote.dto.RefreshTokenRequestDto
 import pbis.bike.finder.data.remote.dto.RegisterRequestDto
+import pbis.bike.finder.data.remote.dto.RecoveryCodesDto
+import pbis.bike.finder.data.remote.dto.TotpCodeRequestDto
+import pbis.bike.finder.data.remote.dto.TotpSetupDto
+import pbis.bike.finder.data.remote.dto.TotpStatusDto
 import pbis.bike.finder.data.remote.dto.RequestPasswordResetDto
 import pbis.bike.finder.data.remote.dto.ResendVerificationDto
 import pbis.bike.finder.data.remote.dto.UpdateProfileRequestDto
@@ -104,6 +108,36 @@ class ProfileViewModelTest {
             notUsed()
 
         override suspend fun logout(body: LogoutRequestDto) = notUsed()
+        /** Estado del segundo factor. Por defecto, apagado. */
+        var totp: () -> TotpStatusDto = { TotpStatusDto(enabled = false) }
+        var totpStatusCalls = 0
+        var confirmarFalla = false
+        var codigosConfirmados: String? = null
+        var codigoDeBaja: String? = null
+
+        override suspend fun totpStatus(): TotpStatusDto {
+            totpStatusCalls++
+            return totp()
+        }
+
+        override suspend fun totpSetup() = TotpSetupDto(
+            secret = "JBSWY3DPEHPK3PXP",
+            provisioningUri = "otpauth://totp/BikeFinder:juan@example.com?secret=JBSWY3DPEHPK3PXP",
+        )
+
+        override suspend fun totpConfirm(body: TotpCodeRequestDto): RecoveryCodesDto {
+            if (confirmarFalla) throw java.io.IOException("sin red")
+            codigosConfirmados = body.code
+            return RecoveryCodesDto(codes = listOf("A3KM7-QP29X", "7TDVW-K4NZR"))
+        }
+
+        override suspend fun totpRecoveryCodes(body: TotpCodeRequestDto) =
+            RecoveryCodesDto(codes = listOf("NUEVO-1", "NUEVO-2"))
+
+        override suspend fun totpDisable(body: TotpCodeRequestDto): Response<Unit> {
+            codigoDeBaja = body.code
+            return Response.success(null)
+        }
         override suspend fun verifyEmail(body: VerifyEmailDto) = notUsed()
         override suspend fun resendVerification(body: ResendVerificationDto) = notUsed()
         override suspend fun requestPasswordReset(body: RequestPasswordResetDto) = notUsed()
@@ -381,6 +415,113 @@ class ProfileViewModelTest {
             assertNull(authApi.lastUpdate!!.localityName)
             assertNull(authApi.lastUpdate!!.localityId)
         }
+
+    // ── Segundo factor ───────────────────────────────────────────────────────
+
+    @Test
+    fun `el alta del segundo factor no activa nada hasta confirmar`() = runTest(dispatcher) {
+        val authApi = FakeAuthApi()
+        val vm = viewModel(authApi = authApi)
+        advanceUntilIdle()
+
+        vm.startTotpSetup()
+        advanceUntilIdle()
+
+        // Hay secreto en pantalla, pero el factor sigue apagado: abandonar acá no
+        // deja la cuenta a medias.
+        assertNotNull(vm.state.value.totpSetup)
+        assertEquals(false, vm.state.value.totp?.enabled)
+        assertNull(authApi.codigosConfirmados)
+
+        vm.cancelTotpSetup()
+        assertNull(vm.state.value.totpSetup)
+    }
+
+    @Test
+    fun `confirmar activa el factor, muestra los codigos y descarta el secreto`() =
+        runTest(dispatcher) {
+            val authApi = FakeAuthApi()
+            val vm = viewModel(authApi = authApi)
+            advanceUntilIdle()
+
+            vm.startTotpSetup()
+            advanceUntilIdle()
+            authApi.totp = { TotpStatusDto(enabled = true, recoveryCodesRemaining = 2) }
+            vm.onTotpCodeChange("492039")
+            vm.confirmTotpSetup()
+            advanceUntilIdle()
+
+            val state = vm.state.value
+            assertEquals("492039", authApi.codigosConfirmados)
+            assertEquals(listOf("A3KM7-QP29X", "7TDVW-K4NZR"), state.recoveryCodes)
+            // El secreto en claro no sobrevive a la confirmación.
+            assertNull(state.totpSetup)
+            // Y el estado se vuelve a preguntar en vez de asumirlo.
+            assertEquals(true, state.totp?.enabled)
+        }
+
+    @Test
+    fun `un codigo rechazado deja el alta abierta para reintentar`() = runTest(dispatcher) {
+        val authApi = FakeAuthApi()
+        authApi.confirmarFalla = true
+        val vm = viewModel(authApi = authApi)
+        advanceUntilIdle()
+
+        vm.startTotpSetup()
+        advanceUntilIdle()
+        vm.onTotpCodeChange("000000")
+        vm.confirmTotpSetup()
+        advanceUntilIdle()
+
+        // El secreto sigue en pantalla: hacerlo pedir de nuevo obligaría a volver
+        // a cargar la cuenta en la app de autenticación.
+        assertNotNull(vm.state.value.totpSetup)
+        assertNotNull(vm.state.value.totpError)
+        assertNull(vm.state.value.recoveryCodes)
+    }
+
+    @Test
+    fun `el codigo del alta se limita a seis digitos`() = runTest(dispatcher) {
+        val vm = viewModel()
+        advanceUntilIdle()
+
+        vm.onTotpCodeChange("12a34-5678")
+
+        assertEquals("123456", vm.state.value.totpCode)
+    }
+
+    @Test
+    fun `dar de baja apaga el factor y limpia los codigos en pantalla`() = runTest(dispatcher) {
+        val authApi = FakeAuthApi()
+        authApi.totp = { TotpStatusDto(enabled = true, recoveryCodesRemaining = 2) }
+        val vm = viewModel(authApi = authApi)
+        advanceUntilIdle()
+
+        vm.askTotpCode(TotpPrompt.DISABLE)
+        vm.onTotpCodeChange("492039")
+        authApi.totp = { TotpStatusDto(enabled = false) }
+        vm.submitTotpPrompt()
+        advanceUntilIdle()
+
+        assertEquals("492039", authApi.codigoDeBaja)
+        assertEquals(false, vm.state.value.totp?.enabled)
+        assertNull(vm.state.value.totpPrompt)
+        // Los códigos que hubiera en pantalla dejaron de servir con el factor.
+        assertNull(vm.state.value.recoveryCodes)
+    }
+
+    @Test
+    fun `si no se puede consultar el estado no se inventa uno`() = runTest(dispatcher) {
+        // Un botón que dice "Activar" sobre un factor que ya está activo es peor
+        // que un botón apagado: mismo criterio que las preferencias de aviso.
+        val authApi = FakeAuthApi()
+        authApi.totp = { throw java.io.IOException("sin red") }
+        val vm = viewModel(authApi = authApi)
+        advanceUntilIdle()
+
+        assertNull(vm.state.value.totp)
+        assertNotNull(vm.state.value.totpError)
+    }
 
     @Test
     fun `la ubicación guardada se rotula segun el pais al que pertenece`() =

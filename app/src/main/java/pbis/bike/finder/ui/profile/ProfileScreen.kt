@@ -26,6 +26,7 @@ import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import android.content.Intent
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -58,6 +59,10 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.datetime.Clock
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
+import androidx.core.net.toUri
 import kotlinx.datetime.Instant
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
@@ -162,6 +167,8 @@ fun ProfileScreen(
                         ViewCard(state = state, onEdit = viewModel::enterEditMode)
                     }
                 }
+
+                item { TwoFactorCard(state = state, viewModel = viewModel) }
 
                 item { AppearanceCard() }
 
@@ -594,6 +601,276 @@ private fun AppearanceCard() {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
+}
+
+// ── Segundo factor ───────────────────────────────────────────────────────────
+
+/**
+ * Verificación en dos pasos.
+ *
+ * **No hay QR, a diferencia del front web**, y no es una simplificación: acá el
+ * usuario ya está en el teléfono, así que escanear un código que se dibuja en esa
+ * misma pantalla es imposible. En su lugar se abre la app de autenticación con la
+ * URI `otpauth://` —que es lo que el QR contiene—, y queda la clave en Base32
+ * para cargarla a mano si no hay ninguna app instalada o si el segundo factor
+ * vive en otro dispositivo.
+ *
+ * La URI **lleva el secreto adentro**: se abre con un intent local y no se manda
+ * a ningún servicio, por la misma razón por la que la web dibuja el QR en el
+ * cliente en vez de pedirle el PNG a un tercero.
+ */
+@Composable
+private fun TwoFactorCard(state: ProfileUiState, viewModel: ProfileViewModel) {
+    val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
+    val estado = state.totp
+
+    SectionCard {
+        Text(
+            text = "Verificación en dos pasos",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+
+        Text(
+            text = when {
+                estado == null -> "No pudimos consultar el estado."
+                !estado.enabled ->
+                    "Un código que cambia cada 30 segundos, además de tu contraseña."
+                estado.recoveryCodesRemaining == 0L ->
+                    "Está activa y no te quedan códigos de recuperación: si perdés el " +
+                        "teléfono no vas a poder entrar. Generá códigos nuevos."
+                estado.recoveryCodesRemaining == 1L ->
+                    "Está activa. Te queda 1 código de recuperación."
+                else ->
+                    "Está activa. Te quedan ${estado.recoveryCodesRemaining} códigos " +
+                        "de recuperación."
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        state.totpError?.let { InlineError(it) }
+
+        // El alta en curso ocupa la tarjeta entera: mostrar además el botón de
+        // "Activar" sería ofrecer empezar de nuevo algo que ya está empezado.
+        val alta = state.totpSetup
+        if (alta != null) {
+            Text(
+                text = "Cargá esta cuenta en tu app de autenticación y escribí el código " +
+                    "que te muestre.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+
+            OutlinedButton(
+                onClick = {
+                    // Si no hay ninguna app que registre otpauth://, el intent no
+                    // resuelve. No es fatal: la clave está abajo.
+                    runCatching {
+                        context.startActivity(
+                            Intent(Intent.ACTION_VIEW, alta.provisioningUri.toUri()),
+                        )
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Abrir en mi app de autenticación") }
+
+            Text(
+                text = "O cargá esta clave a mano:",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                text = alta.secret,
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            TextButton(onClick = { clipboard.setText(AnnotatedString(alta.secret)) }) {
+                Text("Copiar la clave")
+            }
+
+            OutlinedTextField(
+                value = state.totpCode,
+                onValueChange = viewModel::onTotpCodeChange,
+                label = { Text("Código de 6 dígitos") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                singleLine = true,
+                enabled = !state.totpBusy,
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = viewModel::confirmTotpSetup,
+                    enabled = !state.totpBusy && state.totpCode.length == 6,
+                    modifier = Modifier.weight(1f),
+                ) { Text("Confirmar") }
+                OutlinedButton(
+                    onClick = viewModel::cancelTotpSetup,
+                    enabled = !state.totpBusy,
+                    modifier = Modifier.weight(1f),
+                ) { Text("Cancelar") }
+            }
+            return@SectionCard
+        }
+
+        if (estado == null) {
+            // Botón inerte antes que un botón que miente sobre lo que hay
+            // configurado: mismo criterio que las preferencias de aviso.
+            TextButton(onClick = viewModel::loadTotpStatus) { Text("Reintentar") }
+            return@SectionCard
+        }
+
+        if (estado.enabled) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = { viewModel.askTotpCode(TotpPrompt.REGENERATE) },
+                    enabled = !state.totpBusy,
+                    modifier = Modifier.weight(1f),
+                ) { Text("Códigos nuevos") }
+                OutlinedButton(
+                    onClick = { viewModel.askTotpCode(TotpPrompt.DISABLE) },
+                    enabled = !state.totpBusy,
+                    modifier = Modifier.weight(1f),
+                ) { Text("Desactivar") }
+            }
+        } else {
+            Button(
+                onClick = viewModel::startTotpSetup,
+                enabled = !state.totpBusy,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Activar") }
+        }
+    }
+
+    state.totpPrompt?.let { prompt ->
+        TotpCodeDialog(
+            prompt = prompt,
+            code = state.totpCode,
+            busy = state.totpBusy,
+            error = state.totpError,
+            onCodeChange = viewModel::onTotpCodeChange,
+            onConfirm = viewModel::submitTotpPrompt,
+            onDismiss = viewModel::dismissTotpPrompt,
+        )
+    }
+
+    state.recoveryCodes?.let { codes ->
+        RecoveryCodesDialog(
+            codes = codes,
+            onCopy = { clipboard.setText(AnnotatedString(codes.joinToString("\n"))) },
+            onDismiss = viewModel::dismissRecoveryCodes,
+        )
+    }
+}
+
+@Composable
+private fun TotpCodeDialog(
+    prompt: TotpPrompt,
+    code: String,
+    busy: Boolean,
+    error: String?,
+    onCodeChange: (String) -> Unit,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = { if (!busy) onDismiss() },
+        title = {
+            Text(
+                when (prompt) {
+                    TotpPrompt.REGENERATE -> "Generar códigos nuevos"
+                    TotpPrompt.DISABLE -> "Desactivar la verificación en dos pasos"
+                },
+            )
+        },
+        text = {
+            Column {
+                Text(
+                    when (prompt) {
+                        TotpPrompt.REGENERATE ->
+                            "Los códigos anteriores dejan de servir. Escribí el código de " +
+                                "tu app para confirmar."
+                        TotpPrompt.DISABLE ->
+                            "Tu cuenta va a quedar protegida sólo por la contraseña. " +
+                                "Escribí el código de tu app —o uno de recuperación— " +
+                                "para confirmar."
+                    },
+                )
+                OutlinedTextField(
+                    value = code,
+                    onValueChange = onCodeChange,
+                    label = { Text("Código") },
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.NumberPassword,
+                    ),
+                    singleLine = true,
+                    enabled = !busy,
+                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                )
+                error?.let { InlineError(it) }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm, enabled = !busy && code.isNotBlank()) {
+                Text(
+                    when (prompt) {
+                        TotpPrompt.REGENERATE -> "Generar"
+                        TotpPrompt.DISABLE -> "Desactivar"
+                    },
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !busy) { Text("Cancelar") }
+        },
+    )
+}
+
+/**
+ * Los códigos de recuperación, **una sola vez**.
+ *
+ * El backend guarda sólo su hash y no hay endpoint que los liste: si el usuario
+ * cierra esto sin guardarlos, la única salida es regenerarlos. Por eso el
+ * diálogo no se cierra tocando afuera y el botón dice explícitamente que ya
+ * están guardados.
+ */
+@Composable
+private fun RecoveryCodesDialog(
+    codes: List<String>,
+    onCopy: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = {},
+        title = { Text("Guardá estos códigos") },
+        text = {
+            Column {
+                Text(
+                    text = "Son de un solo uso y sirven para entrar si perdés el teléfono. " +
+                        "No los vas a poder volver a ver.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                codes.forEach { codigo ->
+                    Text(
+                        text = codigo,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(top = 6.dp),
+                    )
+                }
+                TextButton(onClick = onCopy, modifier = Modifier.padding(top = 8.dp)) {
+                    Text("Copiar todos")
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Ya los guardé") }
+        },
+    )
 }
 
 // ── Notificaciones ───────────────────────────────────────────────────────────

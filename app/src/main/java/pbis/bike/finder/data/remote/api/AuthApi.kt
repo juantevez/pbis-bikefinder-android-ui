@@ -6,6 +6,10 @@ import pbis.bike.finder.data.remote.dto.ConfirmPasswordResetDto
 import pbis.bike.finder.data.remote.dto.LoginRequestDto
 import pbis.bike.finder.data.remote.dto.LogoutRequestDto
 import pbis.bike.finder.data.remote.dto.MfaLoginRequestDto
+import pbis.bike.finder.data.remote.dto.RecoveryCodesDto
+import pbis.bike.finder.data.remote.dto.TotpCodeRequestDto
+import pbis.bike.finder.data.remote.dto.TotpSetupDto
+import pbis.bike.finder.data.remote.dto.TotpStatusDto
 import pbis.bike.finder.data.remote.dto.RefreshTokenRequestDto
 import pbis.bike.finder.data.remote.dto.RegisterRequestDto
 import pbis.bike.finder.data.remote.dto.RequestPasswordResetDto
@@ -52,6 +56,32 @@ interface AuthApi {
     @Headers("$HEADER_SKIP_AUTH: true")
     @POST("auth/refresh")
     suspend fun refresh(@Body body: RefreshTokenRequestDto): Response<AuthResponseDto>
+
+    // ── Segundo factor ───────────────────────────────────────────────────────
+
+    @GET("auth/2fa/status")
+    suspend fun totpStatus(): TotpStatusDto
+
+    /** Genera el secreto. **No** activa nada: eso lo hace [totpConfirm]. */
+    @POST("auth/2fa/setup")
+    suspend fun totpSetup(): TotpSetupDto
+
+    /** Activa el factor y devuelve los códigos de recuperación, una sola vez. */
+    @POST("auth/2fa/confirm")
+    suspend fun totpConfirm(@Body body: TotpCodeRequestDto): RecoveryCodesDto
+
+    /** Emite un lote nuevo e invalida el anterior. Exige un código válido. */
+    @POST("auth/2fa/recovery-codes")
+    suspend fun totpRecoveryCodes(@Body body: TotpCodeRequestDto): RecoveryCodesDto
+
+    /**
+     * Borra el secreto y los códigos. Responde 204 sin cuerpo.
+     *
+     * Es POST y no DELETE aunque borre: lleva body —el código— y varios proxies
+     * tratan el body de un DELETE como opcional o lo descartan.
+     */
+    @POST("auth/2fa/disable")
+    suspend fun totpDisable(@Body body: TotpCodeRequestDto): Response<Unit>
 
     /** Responde 204 sin cuerpo. */
     @POST("auth/logout")
