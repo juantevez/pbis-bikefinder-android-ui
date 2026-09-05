@@ -72,6 +72,14 @@ sealed interface Route {
     @Serializable
     data class ReportTheft(val bikeId: String, val plan: String? = null) : Route
 
+    /**
+     * Corregir una denuncia ya presentada. Es la misma pantalla que
+     * [ReportTheft]: cambia de dónde salen los valores iniciales y que al
+     * guardar manda PATCH en vez de POST.
+     */
+    @Serializable
+    data class EditReport(val reportId: String) : Route
+
     /** Las denuncias ya hechas: sus dos PDF y sus pistas. */
     @Serializable
     data object MyReports : Route
@@ -218,6 +226,7 @@ fun BikeFinderNavHost(
             val route = entry.toRoute<Route.ReportTheft>()
             ReportTheftScreen(
                 bikeId = route.bikeId,
+                reportId = null,
                 // Igual que el alta: la denuncia sale del back stack al
                 // terminar. Volver atrás sobre un formulario ya enviado sólo
                 // puede llevar a intentar denunciar dos veces la misma bici.
@@ -225,9 +234,21 @@ fun BikeFinderNavHost(
                 onBack = { navController.popBackStack() },
             )
         }
+        composable<Route.EditReport> { entry ->
+            val route = entry.toRoute<Route.EditReport>()
+            ReportTheftScreen(
+                bikeId = null,
+                reportId = route.reportId,
+                // Vuelve al listado, que es de donde se entra a corregir. La
+                // denuncia corregida se relee al recargarlo.
+                onReported = { navController.popBackStack() },
+                onBack = { navController.popBackStack() },
+            )
+        }
         composable<Route.MyReports> {
             MyReportsScreen(
                 onViewTips = { navController.navigate(Route.TipsList(it)) },
+                onEditReport = { navController.navigate(Route.EditReport(it)) },
                 onBack = { navController.popBackStack() },
             )
         }

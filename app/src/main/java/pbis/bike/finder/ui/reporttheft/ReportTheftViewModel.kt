@@ -22,6 +22,10 @@ import pbis.bike.finder.data.remote.dto.LocalityFullDto
 import pbis.bike.finder.data.remote.dto.ReportStatus
 import pbis.bike.finder.data.remote.dto.ReportTheftRequestDto
 import pbis.bike.finder.data.remote.dto.TheftLocationDto
+import pbis.bike.finder.data.remote.dto.TheftReportDto
+import pbis.bike.finder.data.remote.dto.UpdateContactRequestDto
+import pbis.bike.finder.data.remote.dto.UpdateRewardRequestDto
+import pbis.bike.finder.data.remote.dto.UpdateTheftDetailsRequestDto
 import pbis.bike.finder.data.repository.BicycleRepository
 import pbis.bike.finder.data.repository.AuthRepository
 import pbis.bike.finder.data.repository.GeoRepository
@@ -173,7 +177,33 @@ data class ReportTheftUiState(
     val formError: String? = null,
     val fieldErrors: Map<String, String> = emptyMap(),
 
-    /** Id de la denuncia creada. Deja de ser null una sola vez. */
+    /**
+     * La misma pantalla sirve para presentar una denuncia y para corregir una ya
+     * presentada. El formulario es idéntico: lo único que cambia es de dónde
+     * salen los valores iniciales y que al guardar se mandan PATCH en vez de un
+     * POST.
+     */
+    val modoEdicion: Boolean = false,
+    /** Trayendo la denuncia y rearmando la cascada, antes de mostrar nada. */
+    val cargandoReporte: Boolean = false,
+    /**
+     * Por qué esta denuncia no se puede corregir. theft-report rechaza los PATCH
+     * sobre una FOUND o CLOSED, así que frenar al abrir es mejor que dejar
+     * completar todo el formulario para fallar recién al guardar.
+     */
+    val noEditable: String? = null,
+    /**
+     * La denuncia se cerró **mientras** se la estaba corrigiendo. Reintentar no
+     * puede funcionar, así que el botón no se rehabilita.
+     */
+    val cerradaAlGuardar: Boolean = false,
+    /** No se pudo reponer la localidad guardada al hidratar el formulario. */
+    val avisoLocalidad: String? = null,
+
+    /**
+     * Id de la denuncia creada —o corregida—. Deja de ser null una sola vez, y
+     * es lo que dispara el diálogo final con el PDF.
+     */
     val createdReportId: String? = null,
 
     val generatingPdf: Boolean = false,
@@ -247,6 +277,18 @@ class ReportTheftViewModel @Inject constructor(
 
     private var bicycleId: String? = null
 
+    /** Sólo en modo edición: la denuncia que se está corrigiendo. */
+    private var reportId: String? = null
+
+    /**
+     * El formulario recién hidratado, seccionado como lo esperan los tres PATCH.
+     *
+     * Es contra esto que se diffea al guardar, para mandar **sólo** lo que el
+     * usuario tocó. Avanza con cada sección que entra bien: ver
+     * [guardarCorreccion].
+     */
+    private var reporteOriginal: SeccionesDenuncia? = null
+
     /**
      * La pantalla pasa el id de la bici una sola vez.
      *
@@ -254,12 +296,168 @@ class ReportTheftViewModel @Inject constructor(
      * se pueda construir en un test sin armar el back stack de navegación.
      */
     fun start(bicycleId: String) {
-        if (this.bicycleId != null) return
+        if (this.bicycleId != null || this.reportId != null) return
         this.bicycleId = bicycleId
 
         loadBike(bicycleId)
         loadProfile()
         loadCountries()
+    }
+
+    // ── Modo edición ─────────────────────────────────────────────────────────
+
+    /**
+     * Trae la denuncia y deja el formulario listo para corregirla.
+     *
+     * No precarga el contacto desde el perfil como hace el alta: la denuncia ya
+     * tiene el suyo guardado, y pisarlo con el del perfil borraría en silencio un
+     * teléfono que el usuario puso a propósito para esta denuncia.
+     */
+    fun startEdit(reportId: String) {
+        if (this.reportId != null || this.bicycleId != null) return
+        this.reportId = reportId
+        _state.update { it.copy(modoEdicion = true, cargandoReporte = true) }
+
+        viewModelScope.launch {
+            val result = theftRepository.report(reportId)
+            if (result !is ApiResult.Success) {
+                _state.update {
+                    it.copy(
+                        cargandoReporte = false,
+                        noEditable = result.toUserMessage("No se pudo cargar la denuncia."),
+                    )
+                }
+                return@launch
+            }
+
+            val report = result.data
+            if (report.status != ReportStatus.ACTIVE) {
+                _state.update {
+                    it.copy(
+                        cargandoReporte = false,
+                        noEditable = "Esta denuncia ya está cerrada: no se puede corregir.",
+                    )
+                }
+                return@launch
+            }
+
+            bicycleId = report.bicycleId
+            report.bicycleId?.let { loadBike(it) }
+
+            // Sin autoseleccionar Argentina: acá el país lo decide lo que quedó
+            // guardado, y elegirlo dispararía la cascada sobre el país equivocado.
+            cargarPaises(autoSeleccionarArgentina = false)
+            hidratar(report)
+
+            // Recién ahora, con todo puesto: es contra esto que se diffea.
+            reporteOriginal = _state.value.instantanea()
+            _state.update { it.copy(cargandoReporte = false) }
+        }
+    }
+
+    private suspend fun hidratar(report: TheftReportDto) {
+        val loc = report.theftLocation
+
+        _state.update {
+            it.copy(
+                theftDate = report.theftDate ?: it.theftDate,
+                timeSlot = TheftTimeSlot.entries
+                    .firstOrNull { slot -> slot.apiValue == report.theftTimeApprox },
+                description = report.theftDescription.orEmpty(),
+                contactPhone = report.contact?.phone.orEmpty(),
+                contactEmail = report.contact?.email.orEmpty(),
+                contactPublic = report.contact?.isPublic ?: false,
+                rewardOffered = report.reward?.offered ?: false,
+                streetType = StreetType.entries
+                    .firstOrNull { t -> t.apiValue == loc?.streetType },
+                streetName = loc?.streetName.orEmpty(),
+                streetNumber = loc?.streetNumber.orEmpty(),
+                reference = loc?.reference.orEmpty(),
+                // El punto se repone tal cual quedó guardado. **No** se vuelve a
+                // geocodificar: preguntarle a Nominatim otra vez pisaría la calle
+                // guardada con la que devuelva hoy.
+                latitude = loc?.latitude,
+                longitude = loc?.longitude,
+                centerOn = if (loc?.latitude != null && loc.longitude != null) {
+                    loc.latitude to loc.longitude
+                } else {
+                    null
+                },
+            )
+        }
+
+        loc?.localityId?.let { rearmarCascada(it) }
+    }
+
+    /**
+     * Rearma país → provincia → departamento → localidad desde el `localityId`.
+     *
+     * Es lo único que la denuncia guarda de la jerarquía, pero
+     * `GET /localities/{id}` contesta con la cadena completa, así que una request
+     * alcanza para saber qué elegir en cada nivel. Las otras tres son sólo para
+     * poblar las listas: un id seleccionado sin su lista deja el desplegable
+     * vacío, y el usuario vería "no había localidad" cuando sí había.
+     */
+    private suspend fun rearmarCascada(localityId: Int) {
+        val full = geoRepository.locality(localityId)
+        if (full !is ApiResult.Success) {
+            // No es fatal: si hay punto en el mapa la denuncia sigue teniendo
+            // ubicación y se puede guardar igual. Pero hay que avisar.
+            _state.update {
+                it.copy(
+                    avisoLocalidad = "No se pudo recuperar la localidad guardada. " +
+                        "Volvé a elegirla si la vas a cambiar.",
+                )
+            }
+            return
+        }
+
+        val jerarquia = full.data
+        val countryId = jerarquia.country?.id
+        val provinceId = jerarquia.adminLevel1?.id
+        val departmentId = jerarquia.adminLevel2?.id
+
+        _state.update { it.copy(countryId = countryId) }
+
+        if (provinceId != null && countryId != null) {
+            (geoRepository.provinces(countryId) as? ApiResult.Success)?.let { r ->
+                _state.update {
+                    it.copy(
+                        provinces = r.data,
+                        provinceId = provinceId,
+                        etiquetaNivel1 = LocationLabels.nivel1(
+                            LocationLabels.tipoComun(r.data) { p -> p.type },
+                        ),
+                    )
+                }
+            }
+        }
+        if (departmentId != null && provinceId != null) {
+            (geoRepository.departments(provinceId) as? ApiResult.Success)?.let { r ->
+                _state.update {
+                    it.copy(
+                        departments = r.data,
+                        departmentId = departmentId,
+                        etiquetaNivel2 = LocationLabels.nivel2(
+                            LocationLabels.tipoComun(r.data) { d -> d.type },
+                        ),
+                    )
+                }
+            }
+        }
+        if (departmentId != null) {
+            (geoRepository.localities(departmentId) as? ApiResult.Success)?.let { r ->
+                _state.update {
+                    it.copy(
+                        localities = r.data,
+                        localityId = localityId,
+                        etiquetaLocalidad = LocationLabels.localidad(
+                            LocationLabels.tipoComun(r.data) { l -> l.type },
+                        ),
+                    )
+                }
+            }
+        }
     }
 
     private fun loadBike(id: String) {
@@ -300,20 +498,29 @@ class ReportTheftViewModel @Inject constructor(
     // ── Cascada geográfica ───────────────────────────────────────────────────
 
     fun loadCountries() {
+        viewModelScope.launch { cargarPaises(autoSeleccionarArgentina = true) }
+    }
+
+    /**
+     * `autoSeleccionarArgentina` existe por el modo edición: en el alta conviene
+     * arrancar en Argentina —es el único país con datos cargados y ahorra un
+     * desplegable—, pero al corregir una denuncia el país lo decide lo que quedó
+     * guardado, y elegirlo acá dispararía la cascada sobre el país equivocado
+     * para que [rearmarCascada] tuviera que deshacerla.
+     */
+    private suspend fun cargarPaises(autoSeleccionarArgentina: Boolean) {
         _state.update { it.copy(loadingGeo = true, geoError = null) }
 
-        viewModelScope.launch {
-            when (val result = geoRepository.countries()) {
-                is ApiResult.Success -> {
-                    _state.update { it.copy(loadingGeo = false, countries = result.data) }
-                    // Argentina preseleccionada, igual que el front web: es el
-                    // único país con datos cargados, y ahorra un desplegable.
+        when (val result = geoRepository.countries()) {
+            is ApiResult.Success -> {
+                _state.update { it.copy(loadingGeo = false, countries = result.data) }
+                if (autoSeleccionarArgentina) {
                     result.data.firstOrNull { it.isoCode2 == "AR" }?.let { selectCountry(it.id) }
                 }
+            }
 
-                else -> _state.update {
-                    it.copy(loadingGeo = false, geoError = result.toUserMessage(PAISES_ERROR))
-                }
+            else -> _state.update {
+                it.copy(loadingGeo = false, geoError = result.toUserMessage(PAISES_ERROR))
             }
         }
     }
@@ -722,6 +929,13 @@ class ReportTheftViewModel @Inject constructor(
             return
         }
 
+        // Las validaciones de arriba valen igual al corregir: una denuncia editada
+        // tampoco puede quedarse sin fecha ni sin ubicación.
+        if (current.modoEdicion) {
+            viewModelScope.launch { guardarCorreccion() }
+            return
+        }
+
         val id = bicycleId ?: return
         _state.update { it.copy(submitting = true, formError = null, fieldErrors = emptyMap()) }
 
@@ -751,6 +965,90 @@ class ReportTheftViewModel @Inject constructor(
             }
         }
     }
+
+    // ── Guardar una corrección ───────────────────────────────────────────────
+
+    /**
+     * Manda un PATCH por sección tocada.
+     *
+     * Los tres endpoints son independientes y **no hay transacción entre ellos**:
+     * si el segundo falla, lo que escribió el primero ya quedó escrito. Por eso
+     * se lleva la cuenta de lo que entró y se dice —un "no se pudo guardar" a
+     * secas sería mentira, y llevaría al usuario a recargar creyendo que perdió
+     * todo—, y la instantánea de referencia avanza con cada sección que entra,
+     * para que reintentar mande sólo lo que falta.
+     */
+    private suspend fun guardarCorreccion() {
+        val reportId = reportId ?: return
+        val original = reporteOriginal ?: return
+        val ahora = _state.value.instantanea()
+
+        val tocadas = SeccionDenuncia.entries.filter { ahora[it] != original[it] }
+        if (tocadas.isEmpty()) {
+            _state.update { it.copy(formError = "No cambiaste nada.") }
+            return
+        }
+
+        _state.update { it.copy(submitting = true, formError = null, fieldErrors = emptyMap()) }
+
+        val guardadas = mutableListOf<SeccionDenuncia>()
+
+        for (seccion in tocadas) {
+            val result = when (seccion) {
+                SeccionDenuncia.DATOS -> theftRepository.updateDetails(reportId, ahora.details)
+                SeccionDenuncia.CONTACTO -> theftRepository.updateContact(reportId, ahora.contact)
+                SeccionDenuncia.RECOMPENSA -> theftRepository.updateReward(reportId, ahora.reward)
+            }
+
+            if (result is ApiResult.Success) {
+                guardadas += seccion
+                reporteOriginal = reporteOriginal?.con(seccion, ahora)
+                continue
+            }
+
+            // 409: la denuncia dejó de estar ACTIVE mientras el formulario estaba
+            // abierto —se cerró o se marcó como recuperada desde otro lado—. El
+            // backend contesta "Cannot update closed or found report": correcto,
+            // pero en inglés y en términos de dominio. Reintentar no puede
+            // funcionar nunca, así que el botón NO se rehabilita.
+            if (result is ApiResult.HttpError && result.code == 409) {
+                _state.update {
+                    it.copy(
+                        submitting = false,
+                        cerradaAlGuardar = true,
+                        formError = "La denuncia se cerró o se marcó como recuperada mientras " +
+                            "la estabas corrigiendo, así que ya no admite cambios." +
+                            yaEntro(guardadas),
+                    )
+                }
+                return
+            }
+
+            _state.update {
+                it.copy(
+                    submitting = false,
+                    formError = result.toUserMessage(
+                        "No se pudo guardar ${seccion.nombre}.",
+                    ) + yaEntro(guardadas),
+                )
+            }
+            return
+        }
+
+        reporteOriginal = ahora
+        // Cada PATCH marca los PDF como stale: el que el usuario haya descargado
+        // antes —y capaz le dio a la policía— quedó desactualizado, así que el
+        // diálogo final le ofrece el corregido.
+        _state.update { it.copy(submitting = false, createdReportId = reportId) }
+    }
+
+    /** "Sí se guardó el contacto." — o nada, si no entró ninguna. */
+    private fun yaEntro(guardadas: List<SeccionDenuncia>): String =
+        if (guardadas.isEmpty()) {
+            ""
+        } else {
+            " Sí se guardó ${guardadas.joinToString(" y ") { it.nombre }}."
+        }
 
     /**
      * Busca una denuncia activa de esta bici, para resolver un envío ambiguo.
@@ -859,6 +1157,49 @@ class ReportTheftViewModel @Inject constructor(
         // estar mal escrito.
     }
 
+    /**
+     * El formulario seccionado: el cuerpo exacto de cada uno de los tres PATCH.
+     *
+     * Los textos van **crudos** y no con `ifBlank { null }` como en el alta. En
+     * el backend un null significa "no toques este campo" (`if (x != null)` en
+     * `TheftReport`), y con `explicitNulls = false` un null además ni siquiera
+     * viaja: mandar null al vaciar la descripción dejaría la vieja para siempre.
+     * Una cadena vacía sí la borra.
+     */
+    private fun ReportTheftUiState.instantanea() = SeccionesDenuncia(
+        details = UpdateTheftDetailsRequestDto(
+            theftDate = theftDate,
+            theftTimeApprox = timeSlot?.apiValue.orEmpty(),
+            theftLocation = buildLocationParaCorreccion(),
+            theftDescription = description.trim(),
+        ),
+        contact = UpdateContactRequestDto(
+            contactPhone = contactPhone.trim(),
+            contactEmail = contactEmail.trim(),
+            contactPublic = contactPublic,
+        ),
+        reward = UpdateRewardRequestDto(rewardOffered = rewardOffered),
+    )
+
+    /**
+     * La ubicación de una corrección, con el mismo criterio de los textos: vacío
+     * en vez de null, para que borrar la calle la borre de verdad.
+     *
+     * `localityId` y las coordenadas sí van como null cuando no hay: son ids y
+     * números, no hay "cadena vacía" que los borre, y la denuncia no puede
+     * quedarse sin ubicación —lo impide [ReportTheftUiState.hasLocation]—.
+     */
+    private fun ReportTheftUiState.buildLocationParaCorreccion() = TheftLocationDto(
+        localityId = localityId,
+        streetType = streetType?.apiValue,
+        streetName = streetName.trim(),
+        streetNumber = streetNumber.trim(),
+        reference = reference.trim(),
+        latitude = latitude,
+        longitude = longitude,
+        precision = if (latitude != null) "APPROXIMATE" else null,
+    )
+
     private fun ReportTheftUiState.toRequest() = ReportTheftRequestDto(
         theftDate = theftDate,
         theftTimeApprox = timeSlot?.apiValue,
@@ -897,4 +1238,42 @@ class ReportTheftViewModel @Inject constructor(
             precision = if (latitude != null) "APPROXIMATE" else null,
         )
     }
+}
+
+/**
+ * Las tres secciones editables de una denuncia, cada una con su endpoint.
+ *
+ * theft-report no tiene un PATCH único: son tres, y cada uno reemplaza su parte
+ * entera. El nombre es el que se le dice al usuario cuando una entra y otra no.
+ */
+enum class SeccionDenuncia(val nombre: String) {
+    DATOS("los datos del robo"),
+    CONTACTO("el contacto"),
+    RECOMPENSA("la recompensa"),
+}
+
+/**
+ * El formulario seccionado como lo esperan los tres PATCH.
+ *
+ * Se compara por igualdad de `data class` —no por JSON, como el front web— y lo
+ * que se compara es literalmente lo que se manda.
+ */
+data class SeccionesDenuncia(
+    val details: UpdateTheftDetailsRequestDto,
+    val contact: UpdateContactRequestDto,
+    val reward: UpdateRewardRequestDto,
+) {
+    operator fun get(seccion: SeccionDenuncia): Any = when (seccion) {
+        SeccionDenuncia.DATOS -> details
+        SeccionDenuncia.CONTACTO -> contact
+        SeccionDenuncia.RECOMPENSA -> reward
+    }
+
+    /** Esta instantánea con una sección traída de [otra]: la que acaba de entrar. */
+    fun con(seccion: SeccionDenuncia, otra: SeccionesDenuncia): SeccionesDenuncia =
+        when (seccion) {
+            SeccionDenuncia.DATOS -> copy(details = otra.details)
+            SeccionDenuncia.CONTACTO -> copy(contact = otra.contact)
+            SeccionDenuncia.RECOMPENSA -> copy(reward = otra.reward)
+        }
 }

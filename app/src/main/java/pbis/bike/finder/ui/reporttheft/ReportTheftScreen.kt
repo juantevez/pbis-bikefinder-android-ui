@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -72,7 +73,8 @@ import pbis.bike.finder.ui.common.MapPicker
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReportTheftScreen(
-    bikeId: String,
+    bikeId: String?,
+    reportId: String?,
     onReported: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
@@ -81,7 +83,11 @@ fun ReportTheftScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
-    LaunchedEffect(bikeId) { viewModel.start(bikeId) }
+    // Una de las dos, nunca las dos: con `reportId` la pantalla corrige una
+    // denuncia ya presentada; con `bikeId`, presenta una nueva.
+    LaunchedEffect(bikeId, reportId) {
+        if (reportId != null) viewModel.startEdit(reportId) else bikeId?.let(viewModel::start)
+    }
 
     // El permiso de ubicación se pide sólo al tocar el botón: el resto del
     // formulario funciona sin él, eligiendo la localidad a mano.
@@ -106,7 +112,7 @@ fun ReportTheftScreen(
             TopAppBar(
                 title = {
                     Column {
-                        Text("Denunciar robo")
+                        Text(if (state.modoEdicion) "Corregir denuncia" else "Denunciar robo")
                         state.bikeName?.let {
                             Text(
                                 text = it,
@@ -124,6 +130,16 @@ fun ReportTheftScreen(
             )
         },
     ) { padding ->
+        if (state.cargandoReporte) {
+            // Mostrar el formulario vacío y llenarlo un segundo después sería
+            // invitar a escribir sobre algo que se va a pisar solo.
+            Box(
+                modifier = Modifier.fillMaxSize().padding(padding),
+                contentAlignment = Alignment.Center,
+            ) { CircularProgressIndicator() }
+            return@Scaffold
+        }
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -133,6 +149,15 @@ fun ReportTheftScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            if (state.modoEdicion) {
+                Text(
+                    text = "Cambiá lo que haga falta. Al guardar, el PDF que hayas " +
+                        "descargado antes queda desactualizado y vas a poder bajar el corregido.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
             SectionTitle("Qué pasó")
             DateField(
                 date = state.theftDate,
@@ -202,6 +227,14 @@ fun ReportTheftScreen(
                 },
                 onClearPoint = viewModel::clearPoint,
             )
+
+            state.avisoLocalidad?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
 
             state.fieldErrors["ubicacion"]?.let {
                 Text(
@@ -313,7 +346,9 @@ fun ReportTheftScreen(
 
             Button(
                 onClick = viewModel::submit,
-                enabled = !state.submitting,
+                // Un 409 al guardar no se reintenta: la denuncia se cerró y
+                // volver a apretar no puede funcionar nunca.
+                enabled = !state.submitting && !state.cerradaAlGuardar,
                 modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 24.dp),
             ) {
                 if (state.submitting) {
@@ -323,17 +358,37 @@ fun ReportTheftScreen(
                         color = MaterialTheme.colorScheme.onPrimary,
                     )
                 }
-                Text(if (state.submitting) "Enviando…" else "Presentar la denuncia")
+                Text(
+                    when {
+                        state.cerradaAlGuardar -> "La denuncia está cerrada"
+                        state.submitting && state.modoEdicion -> "Guardando…"
+                        state.submitting -> "Enviando…"
+                        state.modoEdicion -> "Guardar cambios"
+                        else -> "Presentar la denuncia"
+                    }
+                )
             }
         }
     }
 
     if (state.createdReportId != null) {
         ReportCreatedDialog(
+            modoEdicion = state.modoEdicion,
             generatingPdf = state.generatingPdf,
             pdfError = state.pdfError,
             onDownloadPdf = viewModel::downloadPdf,
             onClose = onReported,
+        )
+    }
+
+    // La denuncia no se puede corregir y no hay formulario que mostrar: el
+    // diálogo es terminal, la única salida es volver.
+    state.noEditable?.let { motivo ->
+        AlertDialog(
+            onDismissRequest = onBack,
+            title = { Text("No se puede corregir") },
+            text = { Text(motivo) },
+            confirmButton = { TextButton(onClick = onBack) { Text("Volver") } },
         )
     }
 }
@@ -642,6 +697,7 @@ private fun ToggleRow(
  */
 @Composable
 private fun ReportCreatedDialog(
+    modoEdicion: Boolean,
     generatingPdf: Boolean,
     pdfError: String?,
     onDownloadPdf: () -> Unit,
@@ -649,12 +705,21 @@ private fun ReportCreatedDialog(
 ) {
     AlertDialog(
         onDismissRequest = {},
-        title = { Text("Denuncia presentada") },
+        title = { Text(if (modoEdicion) "Denuncia corregida" else "Denuncia presentada") },
         text = {
             Column {
                 Text(
-                    text = "Ya está registrada y tu bicicleta figura como robada. " +
-                        "Podés descargar el PDF para llevarlo a la policía o al seguro.",
+                    // Al corregir, el PDF anterior ahora miente: cada PATCH lo
+                    // marca como stale del lado del servidor, pero el que el
+                    // usuario ya se bajó —y capaz le dio a la policía— sigue en
+                    // su teléfono. Hay que decirlo, no esperar a que lo descubra.
+                    text = if (modoEdicion) {
+                        "El PDF que hayas descargado antes quedó desactualizado. Podés " +
+                            "bajar el corregido ahora, o hacerlo después desde el panel."
+                    } else {
+                        "Ya está registrada y tu bicicleta figura como robada. " +
+                            "Podés descargar el PDF para llevarlo a la policía o al seguro."
+                    },
                     textAlign = TextAlign.Start,
                 )
                 pdfError?.let {
@@ -669,7 +734,13 @@ private fun ReportCreatedDialog(
         },
         confirmButton = {
             TextButton(onClick = onDownloadPdf, enabled = !generatingPdf) {
-                Text(if (generatingPdf) "Generando…" else "Descargar PDF")
+                Text(
+                    when {
+                        generatingPdf -> "Generando…"
+                        modoEdicion -> "Descargar PDF corregido"
+                        else -> "Descargar PDF"
+                    }
+                )
             }
         },
         dismissButton = {

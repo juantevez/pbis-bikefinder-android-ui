@@ -93,9 +93,15 @@ data class ReportTheftRequestDto(
 }
 
 /**
- * Ediciones de una denuncia ya creada. **El front web no las implementa**: una
- * vez presentada, la denuncia no se puede corregir desde la UI. El backend sí
- * las soporta.
+ * Ediciones de una denuncia ya creada: son **tres** PATCH independientes, uno
+ * por sección, y cada uno reemplaza su parte entera. Los tres validan la
+ * propiedad, rechazan con 409 una denuncia que no esté `ACTIVE` y marcan los PDF
+ * como stale.
+ *
+ * **Un campo en null significa "no toques esto"** (`if (x != null)` en
+ * `TheftReport`), y con `explicitNulls = false` un null ni siquiera viaja. Para
+ * **borrar** un texto hay que mandar la cadena vacía; mandar null dejaría el
+ * valor viejo para siempre. Ver `instantanea()` en `ReportTheftViewModel`.
  */
 @Serializable
 data class UpdateTheftDetailsRequestDto(

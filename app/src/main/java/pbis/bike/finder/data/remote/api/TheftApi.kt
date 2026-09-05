@@ -6,7 +6,11 @@ import pbis.bike.finder.data.remote.dto.MessageSentDto
 import pbis.bike.finder.data.remote.dto.PdfGeneratedDto
 import pbis.bike.finder.data.remote.dto.SendMessageRequestDto
 import pbis.bike.finder.data.remote.dto.SubmitTipRequestDto
+import pbis.bike.finder.data.remote.dto.TheftReportDto
 import pbis.bike.finder.data.remote.dto.TheftReportListResponseDto
+import pbis.bike.finder.data.remote.dto.UpdateContactRequestDto
+import pbis.bike.finder.data.remote.dto.UpdateRewardRequestDto
+import pbis.bike.finder.data.remote.dto.UpdateTheftDetailsRequestDto
 import pbis.bike.finder.data.remote.dto.TipDto
 import pbis.bike.finder.data.remote.dto.TipFormInfoDto
 import pbis.bike.finder.data.remote.dto.TipListResponseDto
@@ -16,6 +20,7 @@ import pbis.bike.finder.data.remote.dto.UnreadTipsCountDto
 import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.GET
+import retrofit2.http.PATCH
 import retrofit2.http.Headers
 import retrofit2.http.POST
 import retrofit2.http.Path
@@ -25,6 +30,39 @@ interface TheftReportApi {
 
     @GET("api/v1/my-theft-reports")
     suspend fun myReports(): TheftReportListResponseDto
+
+    /** Una denuncia sola, para hidratar el formulario de correcciones. */
+    @GET("api/v1/theft-reports/{reportId}")
+    suspend fun report(@Path("reportId") reportId: String): TheftReportDto
+
+    /**
+     * Correcciones sobre una denuncia ya presentada. **Son tres endpoints, no
+     * uno**, y cada uno reemplaza su sección entera.
+     *
+     * Los tres rechazan con 409 una denuncia que no esté `ACTIVE` ("Cannot
+     * update closed or found report") y cada uno marca los PDF como stale, así
+     * que el que el usuario haya descargado antes queda desactualizado.
+     *
+     * No hay transacción entre ellos: si el segundo falla, lo que escribió el
+     * primero ya quedó escrito. Ver `guardarCorreccion` en el ViewModel.
+     */
+    @PATCH("api/v1/theft-reports/{reportId}/details")
+    suspend fun updateDetails(
+        @Path("reportId") reportId: String,
+        @Body body: UpdateTheftDetailsRequestDto,
+    ): Response<Unit>
+
+    @PATCH("api/v1/theft-reports/{reportId}/contact")
+    suspend fun updateContact(
+        @Path("reportId") reportId: String,
+        @Body body: UpdateContactRequestDto,
+    ): Response<Unit>
+
+    @PATCH("api/v1/theft-reports/{reportId}/reward")
+    suspend fun updateReward(
+        @Path("reportId") reportId: String,
+        @Body body: UpdateRewardRequestDto,
+    ): Response<Unit>
 
     /**
      * Una sola request para todos los badges. Reemplazó un N+1 (stats por cada

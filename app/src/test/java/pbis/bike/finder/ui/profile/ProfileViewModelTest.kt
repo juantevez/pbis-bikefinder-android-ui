@@ -34,6 +34,7 @@ import pbis.bike.finder.data.remote.dto.ConfirmPasswordResetDto
 import pbis.bike.finder.data.remote.dto.CountryDto
 import pbis.bike.finder.data.remote.dto.CountryListResponseDto
 import pbis.bike.finder.data.remote.dto.LocalityDto
+import pbis.bike.finder.data.remote.dto.LocalityFullDto
 import pbis.bike.finder.data.remote.dto.LocalityListResponseDto
 import pbis.bike.finder.data.remote.dto.LocalitySearchResponseDto
 import pbis.bike.finder.data.remote.dto.LoginRequestDto
@@ -112,6 +113,8 @@ class ProfileViewModelTest {
     }
 
     private class FakeGeoApi : GeoApi {
+        private fun notUsed(): Nothing = throw UnsupportedOperationException()
+
         override suspend fun countries() = CountryListResponseDto(
             countries = listOf(CountryDto(id = 1, name = "Argentina", isoCode2 = "AR")),
         )
@@ -133,6 +136,8 @@ class ProfileViewModelTest {
                 LocalityDto(id = 1001, name = "San Justo"),
             ),
         )
+
+        override suspend fun locality(localityId: Int): LocalityFullDto = notUsed()
 
         override suspend fun searchLocalities(query: String, countryId: Int?, limit: Int) =
             LocalitySearchResponseDto()

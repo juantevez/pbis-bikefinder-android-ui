@@ -5,6 +5,7 @@ import pbis.bike.finder.data.remote.dto.AdminLevel1ListResponseDto
 import pbis.bike.finder.data.remote.dto.AdminLevel2ListResponseDto
 import pbis.bike.finder.data.remote.dto.CountryListResponseDto
 import pbis.bike.finder.data.remote.dto.CreatePaymentRequestDto
+import pbis.bike.finder.data.remote.dto.LocalityFullDto
 import pbis.bike.finder.data.remote.dto.LocalityListResponseDto
 import pbis.bike.finder.data.remote.dto.LocalitySearchResponseDto
 import pbis.bike.finder.data.remote.dto.NotificationPreferencesDto
@@ -44,6 +45,17 @@ interface GeoApi {
     @Headers("$HEADER_SKIP_AUTH: true")
     @GET("api/v1/level2/{departmentId}/localities")
     suspend fun localities(@Path("departmentId") departmentId: Int): LocalityListResponseDto
+
+    /**
+     * Una localidad con su jerarquía completa.
+     *
+     * Es lo que permite rearmar la cascada al corregir una denuncia: el reporte
+     * guarda sólo el `localityId`, y esta respuesta dice qué país, provincia y
+     * departamento hay que elegir arriba.
+     */
+    @Headers("$HEADER_SKIP_AUTH: true")
+    @GET("api/v1/localities/{localityId}")
+    suspend fun locality(@Path("localityId") localityId: Int): LocalityFullDto
 
     /**
      * Búsqueda por texto. Cada resultado trae provincia y partido, así que

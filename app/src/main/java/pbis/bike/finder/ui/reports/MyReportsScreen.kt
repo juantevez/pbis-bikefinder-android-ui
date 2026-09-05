@@ -52,6 +52,7 @@ import pbis.bike.finder.data.remote.dto.ReportStatus
 @Composable
 fun MyReportsScreen(
     onViewTips: (String) -> Unit,
+    onEditReport: (String) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: MyReportsViewModel = hiltViewModel(),
@@ -146,6 +147,7 @@ fun MyReportsScreen(
                             onPrivatePdf = { viewModel.downloadPdf(report.id, publicVersion = false) },
                             onPublicPdf = { viewModel.downloadPdf(report.id, publicVersion = true) },
                             onViewTips = { onViewTips(report.id) },
+                            onEditReport = { onEditReport(report.id) },
                         )
                     }
                 }
@@ -167,6 +169,7 @@ private fun ReportCard(
     onPrivatePdf: () -> Unit,
     onPublicPdf: () -> Unit,
     onViewTips: () -> Unit,
+    onEditReport: () -> Unit,
 ) {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -223,7 +226,7 @@ private fun ReportCard(
                         Text("Cartel + QR")
                     }
                 } else {
-                    OutlinedButton(onClick = onViewTips, modifier = Modifier.fillMaxWidth()) {
+                    OutlinedButton(onClick = onViewTips, modifier = Modifier.weight(1f)) {
                         Text(
                             if (report.unreadTips > 0) {
                                 "Ver pistas (${report.unreadTips} sin leer)"
@@ -232,6 +235,18 @@ private fun ReportCard(
                             },
                         )
                     }
+                }
+            }
+
+            // "Corregir" sólo sobre una denuncia ACTIVE: el backend contesta 409
+            // sobre una recuperada o cerrada, así que ofrecerlo ahí sería prometer
+            // un error.
+            if (tab == ReportsTab.REPORTS && report.status == ReportStatus.ACTIVE) {
+                OutlinedButton(
+                    onClick = onEditReport,
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                ) {
+                    Text("Corregir la denuncia")
                 }
             }
 

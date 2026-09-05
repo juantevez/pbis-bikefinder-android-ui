@@ -13,6 +13,9 @@ import pbis.bike.finder.data.remote.dto.SendMessageRequestDto
 import pbis.bike.finder.data.remote.dto.TheftReportDto
 import pbis.bike.finder.data.remote.dto.TipDto
 import pbis.bike.finder.data.remote.dto.TipStatsDto
+import pbis.bike.finder.data.remote.dto.UpdateContactRequestDto
+import pbis.bike.finder.data.remote.dto.UpdateRewardRequestDto
+import pbis.bike.finder.data.remote.dto.UpdateTheftDetailsRequestDto
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -62,6 +65,36 @@ class TheftRepository @Inject constructor(
      */
     suspend fun generatePublicPdf(reportId: String): ApiResult<PdfGeneratedDto> =
         apiCall(json) { theftApi.generatePublicPdf(reportId) }
+
+    /** Una denuncia sola, para hidratar el formulario al corregirla. */
+    suspend fun report(reportId: String): ApiResult<TheftReportDto> =
+        apiCall(json) { theftApi.report(reportId) }
+
+    /**
+     * Correcciones sobre una denuncia ya presentada.
+     *
+     * Son tres endpoints independientes y **no hay transacción entre ellos**: si
+     * el segundo falla, lo que escribió el primero ya quedó escrito. El
+     * ViewModel manda sólo las secciones que cambiaron y lleva la cuenta de las
+     * que entraron, porque un "no se pudo guardar" a secas sería mentira.
+     *
+     * Los tres contestan 409 si la denuncia dejó de estar `ACTIVE`, y los tres
+     * marcan los PDF como stale.
+     */
+    suspend fun updateDetails(
+        reportId: String,
+        body: UpdateTheftDetailsRequestDto,
+    ): ApiResult<Unit> = apiCall(json) { theftApi.updateDetails(reportId, body).orThrow() }
+
+    suspend fun updateContact(
+        reportId: String,
+        body: UpdateContactRequestDto,
+    ): ApiResult<Unit> = apiCall(json) { theftApi.updateContact(reportId, body).orThrow() }
+
+    suspend fun updateReward(
+        reportId: String,
+        body: UpdateRewardRequestDto,
+    ): ApiResult<Unit> = apiCall(json) { theftApi.updateReward(reportId, body).orThrow() }
 
     /** Las denuncias del usuario, para la pantalla de reportes y pistas. */
     suspend fun myReports(): ApiResult<List<TheftReportDto>> =

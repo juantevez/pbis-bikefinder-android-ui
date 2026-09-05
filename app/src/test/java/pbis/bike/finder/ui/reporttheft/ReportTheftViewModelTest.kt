@@ -39,8 +39,14 @@ import pbis.bike.finder.data.remote.dto.AuthResponseDto
 import pbis.bike.finder.data.remote.dto.BicycleDto
 import pbis.bike.finder.data.remote.dto.ConfirmPasswordResetDto
 import pbis.bike.finder.data.remote.dto.CountryListResponseDto
+import pbis.bike.finder.data.remote.dto.ContactDto
 import pbis.bike.finder.data.remote.dto.LocalityDto
 import pbis.bike.finder.data.remote.dto.LocalityFullDto
+import pbis.bike.finder.data.remote.dto.RewardDto
+import pbis.bike.finder.data.remote.dto.TheftLocationDto
+import pbis.bike.finder.data.remote.dto.UpdateContactRequestDto
+import pbis.bike.finder.data.remote.dto.UpdateRewardRequestDto
+import pbis.bike.finder.data.remote.dto.UpdateTheftDetailsRequestDto
 import pbis.bike.finder.data.remote.dto.LocalityListResponseDto
 import pbis.bike.finder.data.remote.dto.LocalitySearchResponseDto
 import pbis.bike.finder.data.remote.dto.LoginRequestDto
@@ -107,12 +113,14 @@ class ReportTheftViewModelTest {
         var provinces: () -> AdminLevel1ListResponseDto = { AdminLevel1ListResponseDto() },
         var departments: () -> AdminLevel2ListResponseDto = { AdminLevel2ListResponseDto() },
         var localities: () -> LocalityListResponseDto = { LocalityListResponseDto() },
+        var locality: () -> LocalityFullDto = { LocalityFullDto(id = 0, name = "") },
         var search: () -> LocalitySearchResponseDto = { LocalitySearchResponseDto() },
     ) : GeoApi {
         override suspend fun countries() = countries.invoke()
         override suspend fun provinces(countryId: Int) = provinces.invoke()
         override suspend fun departments(provinceId: Int) = departments.invoke()
         override suspend fun localities(departmentId: Int) = localities.invoke()
+        override suspend fun locality(localityId: Int) = locality.invoke()
         override suspend fun searchLocalities(query: String, countryId: Int?, limit: Int) =
             search.invoke()
     }
@@ -144,6 +152,46 @@ class ReportTheftViewModelTest {
         /** Las denuncias que el backend ya tiene. Por defecto, ninguna. */
         var reports: List<TheftReportDto> = emptyList()
         var myReportsCalls = 0
+
+        /** La denuncia que devuelve `GET /theft-reports/{id}` en modo corrección. */
+        var report: TheftReportDto? = null
+
+        var detailsPatches = mutableListOf<UpdateTheftDetailsRequestDto>()
+        var contactPatches = mutableListOf<UpdateContactRequestDto>()
+        var rewardPatches = mutableListOf<UpdateRewardRequestDto>()
+
+        /** Qué contesta cada PATCH. `null` = 204. */
+        var fallaDetails: (() -> Nothing)? = null
+        var fallaContact: (() -> Nothing)? = null
+
+        override suspend fun report(reportId: String) =
+            report ?: throw IllegalStateException("sin denuncia")
+
+        override suspend fun updateDetails(
+            reportId: String,
+            body: UpdateTheftDetailsRequestDto,
+        ): Response<Unit> {
+            fallaDetails?.invoke()
+            detailsPatches += body
+            return Response.success(null)
+        }
+
+        override suspend fun updateContact(
+            reportId: String,
+            body: UpdateContactRequestDto,
+        ): Response<Unit> {
+            fallaContact?.invoke()
+            contactPatches += body
+            return Response.success(null)
+        }
+
+        override suspend fun updateReward(
+            reportId: String,
+            body: UpdateRewardRequestDto,
+        ): Response<Unit> {
+            rewardPatches += body
+            return Response.success(null)
+        }
 
         override suspend fun generatePdf(reportId: String) = pdf()
 
@@ -741,6 +789,212 @@ class ReportTheftViewModelTest {
         assertEquals(true, api.lastReport?.rewardOffered)
         // Ya no hay nada que validar: un booleano no puede estar mal escrito.
         assertNull(sut.state.value.fieldErrors["recompensa"])
+    }
+
+    // ── Corregir una denuncia ya presentada ──────────────────────────────────
+
+    private fun denunciaGuardada(
+        status: ReportStatus = ReportStatus.ACTIVE,
+    ) = TheftReportDto(
+        id = "rep-1",
+        bicycleId = "bici-1",
+        status = status,
+        theftDate = LocalDate(2026, 8, 30),
+        theftTimeApprox = "AFTERNOON",
+        theftDescription = "Estaba atada al poste",
+        theftLocation = TheftLocationDto(
+            localityId = 9,
+            streetType = "CALLE",
+            streetName = "Av. 7",
+            streetNumber = "1200",
+            latitude = -34.92,
+            longitude = -57.95,
+        ),
+        contact = ContactDto(phone = "11-1111", email = "yo@ejemplo.com", isPublic = true),
+        reward = RewardDto(offered = true),
+    )
+
+    private fun apiConDenuncia(status: ReportStatus = ReportStatus.ACTIVE) =
+        FakeTheftApi().apply { report = denunciaGuardada(status) }
+
+    /** La jerarquía que devuelve `GET /localities/{id}` para la localidad 9. */
+    private fun geoConJerarquia() = FakeGeoApi(
+        provinces = {
+            AdminLevel1ListResponseDto(items = listOf(AdminLevel1Dto(id = 5, name = "Buenos Aires")))
+        },
+        departments = {
+            AdminLevel2ListResponseDto(items = listOf(AdminLevel2Dto(id = 7, name = "La Plata")))
+        },
+        localities = {
+            LocalityListResponseDto(localities = listOf(LocalityDto(id = 9, name = "La Plata")))
+        },
+        locality = {
+            LocalityFullDto(
+                id = 9,
+                name = "La Plata",
+                adminLevel2 = LocalityFullDto.AdminLevel2InfoDto(id = 7, name = "La Plata"),
+                adminLevel1 = LocalityFullDto.AdminLevel1InfoDto(id = 5, name = "Buenos Aires"),
+                country = LocalityFullDto.CountryInfoDto(id = 1, name = "Argentina"),
+            )
+        },
+    )
+
+    @Test
+    fun `corregir hidrata el formulario y rearma la cascada desde el localityId`() = runTest {
+        // La denuncia guarda sólo el localityId: sin rearmar los niveles de
+        // arriba, el usuario vería la localidad sobre una provincia en blanco y
+        // tocar cualquier nivel la borraría.
+        val theftApi = apiConDenuncia()
+        val sut = viewModel(theftApi = theftApi, geoApi = geoConJerarquia())
+
+        sut.startEdit("rep-1")
+        advanceUntilIdle()
+
+        val state = sut.state.value
+        assertTrue(state.modoEdicion)
+        assertTrue(!state.cargandoReporte)
+        assertEquals(LocalDate(2026, 8, 30), state.theftDate)
+        assertEquals(TheftTimeSlot.AFTERNOON, state.timeSlot)
+        assertEquals("Estaba atada al poste", state.description)
+        assertEquals("Av. 7", state.streetName)
+        assertEquals("11-1111", state.contactPhone)
+        assertTrue(state.contactPublic)
+        assertTrue(state.rewardOffered)
+        assertEquals(-34.92, state.latitude!!, 0.0001)
+
+        assertEquals(1, state.countryId)
+        assertEquals(5, state.provinceId)
+        assertEquals(7, state.departmentId)
+        assertEquals(9, state.localityId)
+    }
+
+    @Test
+    fun `una denuncia cerrada no se puede corregir`() = runTest {
+        // theft-report rechaza los PATCH sobre una FOUND o CLOSED. Frenar al
+        // abrir es mejor que dejar completar todo el formulario para fallar
+        // recién al guardar.
+        val sut = viewModel(theftApi = apiConDenuncia(ReportStatus.CLOSED))
+
+        sut.startEdit("rep-1")
+        advanceUntilIdle()
+
+        assertNotNull(sut.state.value.noEditable)
+        assertTrue(!sut.state.value.cargandoReporte)
+    }
+
+    @Test
+    fun `al corregir se manda PATCH solo de las secciones tocadas`() = runTest {
+        val theftApi = apiConDenuncia()
+        val sut = viewModel(theftApi = theftApi, geoApi = geoConJerarquia())
+        sut.startEdit("rep-1")
+        advanceUntilIdle()
+
+        sut.setDescription("Estaba atada al poste con candado en U")
+        sut.submit()
+        advanceUntilIdle()
+
+        assertEquals(1, theftApi.detailsPatches.size)
+        assertTrue(theftApi.contactPatches.isEmpty())
+        assertTrue(theftApi.rewardPatches.isEmpty())
+        // El diálogo final ofrece el PDF corregido: cada PATCH deja stale el viejo.
+        assertEquals("rep-1", sut.state.value.createdReportId)
+    }
+
+    @Test
+    fun `sin cambios no se manda nada`() = runTest {
+        val theftApi = apiConDenuncia()
+        val sut = viewModel(theftApi = theftApi, geoApi = geoConJerarquia())
+        sut.startEdit("rep-1")
+        advanceUntilIdle()
+
+        sut.submit()
+        advanceUntilIdle()
+
+        assertTrue(theftApi.detailsPatches.isEmpty())
+        assertEquals("No cambiaste nada.", sut.state.value.formError)
+        assertNull(sut.state.value.createdReportId)
+    }
+
+    @Test
+    fun `vaciar un texto lo borra de verdad, en vez de dejar el viejo`() = runTest {
+        // En el backend un null significa "no toques este campo", y con
+        // explicitNulls = false ni siquiera viaja: mandar null al vaciar la
+        // descripción dejaría la vieja para siempre.
+        val theftApi = apiConDenuncia()
+        val sut = viewModel(theftApi = theftApi, geoApi = geoConJerarquia())
+        sut.startEdit("rep-1")
+        advanceUntilIdle()
+
+        sut.setDescription("")
+        sut.submit()
+        advanceUntilIdle()
+
+        assertEquals("", theftApi.detailsPatches.single().theftDescription)
+    }
+
+    @Test
+    fun `si una seccion falla se dice cual entro y no se reintenta la que ya entro`() = runTest {
+        // Los tres endpoints son independientes y no hay transacción entre ellos:
+        // un "no se pudo guardar" a secas llevaría al usuario a recargar creyendo
+        // que perdió todo.
+        val theftApi = apiConDenuncia()
+        theftApi.fallaContact = { throw httpError(500) }
+        val sut = viewModel(theftApi = theftApi, geoApi = geoConJerarquia())
+        sut.startEdit("rep-1")
+        advanceUntilIdle()
+
+        sut.setDescription("otra cosa")
+        sut.setContactPhone("11-2222")
+        sut.submit()
+        advanceUntilIdle()
+
+        assertEquals(1, theftApi.detailsPatches.size)
+        assertTrue(sut.state.value.formError!!.contains("Sí se guardó los datos del robo"))
+
+        // La instantánea avanzó con lo que sí entró: al reintentar se manda sólo
+        // el contacto, y los datos del robo no se reescriben.
+        theftApi.fallaContact = null
+        sut.submit()
+        advanceUntilIdle()
+
+        assertEquals(1, theftApi.detailsPatches.size)
+        assertEquals("11-2222", theftApi.contactPatches.single().contactPhone)
+    }
+
+    @Test
+    fun `un 409 al guardar no rehabilita el boton`() = runTest {
+        // La denuncia se cerró mientras el formulario estaba abierto. Reintentar
+        // no puede funcionar nunca.
+        val theftApi = apiConDenuncia()
+        theftApi.fallaDetails = { throw httpError(409) }
+        val sut = viewModel(theftApi = theftApi, geoApi = geoConJerarquia())
+        sut.startEdit("rep-1")
+        advanceUntilIdle()
+
+        sut.setDescription("otra cosa")
+        sut.submit()
+        advanceUntilIdle()
+
+        val state = sut.state.value
+        assertTrue(state.cerradaAlGuardar)
+        assertTrue(state.formError!!.contains("ya no admite cambios"))
+        assertNull(state.createdReportId)
+    }
+
+    @Test
+    fun `corregir tampoco puede dejar la denuncia sin ubicacion`() = runTest {
+        val theftApi = apiConDenuncia()
+        val sut = viewModel(theftApi = theftApi, geoApi = geoConJerarquia())
+        sut.startEdit("rep-1")
+        advanceUntilIdle()
+
+        sut.selectLocality(null)
+        sut.clearPoint()
+        sut.submit()
+        advanceUntilIdle()
+
+        assertTrue(theftApi.detailsPatches.isEmpty())
+        assertNotNull(sut.state.value.fieldErrors["ubicacion"])
     }
 
     @Test

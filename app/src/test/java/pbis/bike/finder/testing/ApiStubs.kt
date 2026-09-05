@@ -26,6 +26,9 @@ import pbis.bike.finder.data.remote.dto.TipListResponseDto
 import pbis.bike.finder.data.remote.dto.TipStatsDto
 import pbis.bike.finder.data.remote.dto.UnreadTipsCountDto
 import pbis.bike.finder.data.remote.dto.UpdateComponentsRequestDto
+import pbis.bike.finder.data.remote.dto.UpdateContactRequestDto
+import pbis.bike.finder.data.remote.dto.UpdateRewardRequestDto
+import pbis.bike.finder.data.remote.dto.UpdateTheftDetailsRequestDto
 import retrofit2.Response
 
 /**
@@ -76,6 +79,23 @@ abstract class StubBicycleApi : BicycleApi {
 
 abstract class StubTheftReportApi : TheftReportApi {
     override suspend fun myReports(): TheftReportListResponseDto = notUsed()
+    override suspend fun report(reportId: String): TheftReportDto = notUsed()
+
+    override suspend fun updateDetails(
+        reportId: String,
+        body: UpdateTheftDetailsRequestDto,
+    ): Response<Unit> = notUsed()
+
+    override suspend fun updateContact(
+        reportId: String,
+        body: UpdateContactRequestDto,
+    ): Response<Unit> = notUsed()
+
+    override suspend fun updateReward(
+        reportId: String,
+        body: UpdateRewardRequestDto,
+    ): Response<Unit> = notUsed()
+
     override suspend fun unreadTipsCount(): UnreadTipsCountDto = notUsed()
     override suspend fun generatePdf(reportId: String): PdfGeneratedDto = notUsed()
     override suspend fun generatePublicPdf(reportId: String): PdfGeneratedDto = notUsed()

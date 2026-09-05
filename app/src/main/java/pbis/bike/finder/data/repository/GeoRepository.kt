@@ -43,6 +43,15 @@ class GeoRepository @Inject constructor(
         apiCall(json) { api.localities(departmentId).localities }
 
     /**
+     * Una localidad con su jerarquía completa.
+     *
+     * Rearma la cascada al corregir una denuncia: el reporte guarda sólo el
+     * `localityId` y esto dice qué elegir en los tres niveles de arriba.
+     */
+    suspend fun locality(localityId: Int): ApiResult<LocalityFullDto> =
+        apiCall(json) { api.locality(localityId) }
+
+    /**
      * Busca localidades por nombre, con la jerarquía completa en cada resultado.
      *
      * Es lo que permite convertir el "Ramos Mejía" que devuelve OSM en el
