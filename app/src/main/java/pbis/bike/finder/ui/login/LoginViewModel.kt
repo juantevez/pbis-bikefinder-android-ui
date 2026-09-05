@@ -33,6 +33,15 @@ data class LoginUiState(
      */
     val mfaToken: String? = null,
     val mfaCode: String = "",
+
+    /** El diálogo de recuperar contraseña, que en la web es un modal del login. */
+    val resetVisible: Boolean = false,
+    val resetEmail: String = "",
+    val resetEmailError: String? = null,
+    val resetSubmitting: Boolean = false,
+    /** Ya se pidió el link: el diálogo pasa a explicar qué va a pasar. */
+    val resetSent: Boolean = false,
+    val resetError: String? = null,
 ) {
     val awaitingMfa: Boolean get() = mfaToken != null
 }
@@ -149,6 +158,72 @@ class LoginViewModel @Inject constructor(
                         formError = result.toUserMessage("No se pudo verificar el código."),
                     )
                 }
+            }
+        }
+    }
+
+    // ── Recuperar contraseña ─────────────────────────────────────────────────
+
+    /**
+     * Abre el diálogo con el email que ya venía tipeado.
+     *
+     * El modal de la web arranca vacío, pero ahí el usuario tiene el mail a la
+     * vista en el formulario de atrás y puede copiarlo; en un teléfono el
+     * diálogo lo tapa y volver a escribirlo es teclado, error y frustración
+     * justo cuando ya se equivocó con la contraseña.
+     */
+    fun openPasswordReset() = _state.update {
+        it.copy(
+            resetVisible = true,
+            resetEmail = it.email,
+            resetEmailError = null,
+            resetSent = false,
+            resetError = null,
+        )
+    }
+
+    fun closePasswordReset() = _state.update { it.copy(resetVisible = false) }
+
+    fun onResetEmailChange(value: String) =
+        _state.update { it.copy(resetEmail = value, resetEmailError = null, resetError = null) }
+
+    /**
+     * Pide el link de recuperación.
+     *
+     * **Se avisa que salió bien aunque el servidor conteste con un error**, que
+     * es lo mismo que hace la web: el backend no revela si el mail existe, y un
+     * "esa cuenta no existe" convertiría esta pantalla en una forma de averiguar
+     * qué direcciones están registradas. Lo único que se muestra como falla es
+     * no haber podido llegar al servidor, porque ahí el pedido no se envió y
+     * reintentar sí sirve.
+     */
+    fun submitPasswordReset() {
+        val current = _state.value
+        if (current.resetSubmitting) return
+
+        val email = current.resetEmail.trim()
+        val error = when {
+            email.isBlank() -> "El email es requerido"
+            !EMAIL_REGEX.matches(email) -> "Email inválido"
+            else -> null
+        }
+        if (error != null) {
+            _state.update { it.copy(resetEmailError = error) }
+            return
+        }
+
+        _state.update { it.copy(resetSubmitting = true, resetError = null) }
+
+        viewModelScope.launch {
+            when (authRepository.requestPasswordReset(email)) {
+                is ApiResult.NoNetwork -> _state.update {
+                    it.copy(
+                        resetSubmitting = false,
+                        resetError = "No se pudo conectar con el servidor.",
+                    )
+                }
+
+                else -> _state.update { it.copy(resetSubmitting = false, resetSent = true) }
             }
         }
     }

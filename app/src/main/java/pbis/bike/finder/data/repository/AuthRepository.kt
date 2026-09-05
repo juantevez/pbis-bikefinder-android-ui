@@ -15,6 +15,7 @@ import pbis.bike.finder.data.remote.dto.LogoutRequestDto
 import pbis.bike.finder.data.remote.dto.MfaLoginRequestDto
 import pbis.bike.finder.data.remote.dto.RecoveryCodesDto
 import pbis.bike.finder.data.remote.dto.RegisterRequestDto
+import pbis.bike.finder.data.remote.dto.RequestPasswordResetDto
 import pbis.bike.finder.data.remote.dto.TotpCodeRequestDto
 import pbis.bike.finder.data.remote.dto.TotpSetupDto
 import pbis.bike.finder.data.remote.dto.TotpStatusDto
@@ -222,6 +223,18 @@ class AuthRepository @Inject constructor(
     /** Da de baja el factor. Acepta un código de la app **o** uno de recuperación. */
     suspend fun disableTotp(code: String): ApiResult<Unit> =
         apiCall(json) { api.totpDisable(TotpCodeRequestDto(code)).orThrow() }
+
+    /**
+     * Pide el mail con el link para elegir una contraseña nueva.
+     *
+     * El link que llega apunta al front web (`EmailAdapter` lo arma como
+     * `frontendUrl + "/reset-password.html?token=…"`), así que la contraseña se
+     * elige en el navegador: la app sólo dispara el envío. Terminar el flujo acá
+     * adentro necesitaría que el mail apuntara a un deep link, y eso se cambia
+     * en auth-service, no en la app.
+     */
+    suspend fun requestPasswordReset(email: String): ApiResult<Unit> =
+        apiCall(json) { api.requestPasswordReset(RequestPasswordResetDto(email)).orThrow() }
 
     /**
      * Cierra sesión.

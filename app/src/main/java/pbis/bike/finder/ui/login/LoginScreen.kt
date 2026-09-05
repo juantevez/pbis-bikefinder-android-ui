@@ -13,6 +13,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.TextButton
@@ -160,14 +161,124 @@ fun LoginScreen(
                 }
             }
 
+            TextButton(
+                onClick = viewModel::openPasswordReset,
+                enabled = !state.submitting,
+                modifier = Modifier.padding(top = 8.dp),
+            ) {
+                Text("¿Olvidaste tu contraseña?")
+            }
+
             Text(
                 text = "El registro y el ingreso con Google todavía no están en la app.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 24.dp),
+                modifier = Modifier.padding(top = 16.dp),
             )
         }
     }
+
+    if (state.resetVisible) {
+        RecuperarContrasenaDialog(state = state, viewModel = viewModel)
+    }
+}
+
+/**
+ * Recuperar contraseña — el modal de `index.html`.
+ *
+ * Tiene dos caras: el formulario y, una vez pedido el link, el aviso de qué
+ * esperar. La segunda dice explícitamente que el link abre el navegador, porque
+ * la contraseña nueva se elige en el front web y quien no lo sepa se queda
+ * esperando que la app haga algo.
+ */
+@Composable
+private fun RecuperarContrasenaDialog(
+    state: LoginUiState,
+    viewModel: LoginViewModel,
+) {
+    AlertDialog(
+        // Cerrar tocando afuera queda deshabilitado mientras el pedido está en
+        // vuelo: el usuario no sabría si llegó a enviarse.
+        onDismissRequest = { if (!state.resetSubmitting) viewModel.closePasswordReset() },
+        title = { Text(if (state.resetSent) "Revisá tu correo" else "Recuperar contraseña") },
+        text = {
+            if (state.resetSent) {
+                Text(
+                    "Si el email existe, te va a llegar un link en los próximos minutos. " +
+                        "El link abre el navegador para que elijas la contraseña nueva.",
+                )
+            } else {
+                Column {
+                    Text(
+                        text = "Ingresá tu email y te enviamos un link para restablecer " +
+                            "tu contraseña.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+
+                    OutlinedTextField(
+                        value = state.resetEmail,
+                        onValueChange = viewModel::onResetEmailChange,
+                        label = { Text("Email") },
+                        singleLine = true,
+                        isError = state.resetEmailError != null,
+                        supportingText = state.resetEmailError?.let { { Text(it) } },
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Email,
+                            imeAction = ImeAction.Done,
+                        ),
+                        keyboardActions = KeyboardActions(
+                            onDone = { viewModel.submitPasswordReset() },
+                        ),
+                        enabled = !state.resetSubmitting,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 16.dp),
+                    )
+
+                    state.resetError?.let { error ->
+                        Text(
+                            text = error,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            if (state.resetSent) {
+                TextButton(onClick = viewModel::closePasswordReset) { Text("Entendido") }
+            } else {
+                TextButton(
+                    onClick = viewModel::submitPasswordReset,
+                    enabled = !state.resetSubmitting,
+                ) {
+                    if (state.resetSubmitting) {
+                        CircularProgressIndicator(
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    } else {
+                        Text("Enviar link")
+                    }
+                }
+            }
+        },
+        dismissButton = if (state.resetSent) {
+            null
+        } else {
+            {
+                TextButton(
+                    onClick = viewModel::closePasswordReset,
+                    enabled = !state.resetSubmitting,
+                ) {
+                    Text("Cancelar")
+                }
+            }
+        },
+    )
 }
 
 /**
