@@ -309,7 +309,7 @@ private fun PhotoGallery(
                 photos.forEach { photo ->
                     Box {
                         AsyncImage(
-                            model = photo.url,
+                            model = photo.miniaturaUrl,
                             contentDescription = photo.description ?: "Foto de la bicicleta",
                             contentScale = ContentScale.Crop,
                             modifier = Modifier

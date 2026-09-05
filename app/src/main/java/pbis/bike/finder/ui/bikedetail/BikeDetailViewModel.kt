@@ -18,10 +18,17 @@ import pbis.bike.finder.ui.common.isSafeToRetry
 import pbis.bike.finder.ui.common.toUserMessage
 import javax.inject.Inject
 
-/** Una foto ya resuelta a algo que el ImageLoader puede pedir. */
+/**
+ * Una foto ya resuelta a algo que el ImageLoader puede pedir.
+ *
+ * Son dos URLs porque son dos usos distintos: la grilla pinta cuadrados de 140dp
+ * y el lightbox ocupa la pantalla. [miniaturaUrl] cae en [url] cuando la foto no
+ * tiene miniatura.
+ */
 data class BikePhoto(
     val id: String,
     val url: String,
+    val miniaturaUrl: String,
     val isPrimary: Boolean,
     val description: String?,
 )
@@ -137,6 +144,12 @@ class BikeDetailViewModel @Inject constructor(
      *
      * El `downloadUrl` que devuelve media-service es la clave del archivo, no una
      * URL navegable: la traducción a algo pedible la hace [photoDownloadUrl].
+     *
+     * La grilla pide la miniatura y el original queda para el lightbox, que es lo
+     * que hace el front web. Las cuatro fotos de una bici son ~120KB de
+     * miniaturas contra ~1,2MB de originales, y el cuadro donde se pintan mide
+     * 140dp: bajar el archivo entero para eso es tirar el ancho de banda y la
+     * espera del usuario.
      */
     private fun loadPhotos(id: String) {
         viewModelScope.launch {
@@ -147,6 +160,7 @@ class BikeDetailViewModel @Inject constructor(
                         BikePhoto(
                             id = photo.id,
                             url = photoDownloadUrl(key),
+                            miniaturaUrl = photoDownloadUrl(photo.thumbnailUrl ?: key),
                             isPrimary = photo.isPrimary,
                             description = photo.description ?: photo.photoType?.displayName,
                         )

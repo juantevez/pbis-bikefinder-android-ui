@@ -222,6 +222,15 @@ data class PhotoDto(
     @Serializable(with = FlexibleLocalDateTimeSerializer::class)
     val uploadedAt: LocalDateTime? = null,
     val downloadUrl: String? = null,
+    /**
+     * Clave de la miniatura, no una URL — igual que [downloadUrl].
+     *
+     * media-service la genera con el lado mayor en 400px y pesa cerca de veinte
+     * veces menos que el original. Viene en null en las fotos anteriores a las
+     * miniaturas y en las que no se pudieron procesar, y en ese caso se cae al
+     * archivo grande.
+     */
+    val thumbnailUrl: String? = null,
     val exif: ExifDto? = null,
 )
 
