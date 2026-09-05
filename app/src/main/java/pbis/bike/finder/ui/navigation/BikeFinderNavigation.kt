@@ -227,10 +227,16 @@ fun BikeFinderNavHost(
             ReportTheftScreen(
                 bikeId = route.bikeId,
                 reportId = null,
-                // Igual que el alta: la denuncia sale del back stack al
-                // terminar. Volver atrás sobre un formulario ya enviado sólo
-                // puede llevar a intentar denunciar dos veces la misma bici.
-                onReported = { navController.popBackStack() },
+                // Al terminar se va al listado de denuncias, no a la pantalla de
+                // antes: quien acaba de denunciar quiere ver la denuncia, y desde
+                // ahí salen los dos PDF. La denuncia sale del back stack —volver
+                // atrás sobre un formulario ya enviado sólo puede llevar a
+                // intentar denunciar dos veces la misma bici—.
+                onReported = {
+                    navController.navigate(Route.MyReports) {
+                        popUpTo<Route.ReportTheft> { inclusive = true }
+                    }
+                },
                 onBack = { navController.popBackStack() },
             )
         }
