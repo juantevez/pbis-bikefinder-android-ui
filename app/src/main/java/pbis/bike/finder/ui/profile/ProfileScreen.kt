@@ -70,6 +70,7 @@ import pbis.bike.finder.ui.common.textoPrimero
 import pbis.bike.finder.ui.common.initialsOf
 import pbis.bike.finder.ui.common.formatLongDate
 import pbis.bike.finder.ui.theme.LocalThemeController
+import pbis.bike.finder.ui.theme.isDark
 
 /**
  * Mi perfil, equivalente a `perfil.html` del front web.
@@ -578,6 +579,19 @@ private fun AppearanceCard() {
             selected = controller.preference,
             optionLabel = { it.label },
             onSelect = { it?.let(controller.onChange) },
+        )
+
+        // El desplegable dice la PREFERENCIA; esto dice el ESTADO. Con
+        // "Automático" elegido son dos cosas distintas —y es justamente el caso
+        // en que el usuario no tiene cómo saber cuál de los dos temas rige—.
+        Text(
+            text = if (controller.preference.isDark()) {
+                "Ahora se ve en modo oscuro."
+            } else {
+                "Ahora se ve en modo claro."
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
