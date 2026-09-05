@@ -164,7 +164,11 @@ fun ProfileScreen(
                     if (state.editing) {
                         EditCard(state = state, viewModel = viewModel)
                     } else {
-                        ViewCard(state = state, onEdit = viewModel::enterEditMode)
+                        ViewCard(
+                            state = state,
+                            onEdit = viewModel::enterEditMode,
+                            onResendVerification = viewModel::resendVerification,
+                        )
                     }
                 }
 
@@ -231,7 +235,11 @@ private fun ProfileAvatar(fullName: String?, email: String?) {
 // ── Modo lectura ─────────────────────────────────────────────────────────────
 
 @Composable
-private fun ViewCard(state: ProfileUiState, onEdit: () -> Unit) {
+private fun ViewCard(
+    state: ProfileUiState,
+    onEdit: () -> Unit,
+    onResendVerification: () -> Unit,
+) {
     val profile = state.profile ?: return
 
     SectionCard {
@@ -252,21 +260,34 @@ private fun ViewCard(state: ProfileUiState, onEdit: () -> Unit) {
         DataRow("Email", profile.email)
 
         // El estado de verificación va como chip y no como texto: es lo único de
-        // la pantalla sobre lo que el usuario puede tener que actuar.
-        AssistChip(
-            onClick = {},
-            enabled = false,
-            label = {
-                Text(if (profile.emailVerified == true) "Verificado" else "Sin verificar")
-            },
-            colors = AssistChipDefaults.assistChipColors(
-                disabledLabelColor = if (profile.emailVerified == true) {
-                    MaterialTheme.colorScheme.tertiary
-                } else {
-                    MaterialTheme.colorScheme.error
+        // la pantalla sobre lo que el usuario puede tener que actuar. El chip
+        // sigue siendo sólo el estado —no se toca— y la acción va al lado, que es
+        // lo que faltaba: hasta ahora decía "Sin verificar" y no ofrecía salida.
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            AssistChip(
+                onClick = {},
+                enabled = false,
+                label = {
+                    Text(if (profile.emailVerified == true) "Verificado" else "Sin verificar")
                 },
-            ),
-        )
+                colors = AssistChipDefaults.assistChipColors(
+                    disabledLabelColor = if (profile.emailVerified == true) {
+                        MaterialTheme.colorScheme.tertiary
+                    } else {
+                        MaterialTheme.colorScheme.error
+                    },
+                ),
+            )
+
+            if (profile.emailVerified != true) {
+                TextButton(
+                    onClick = onResendVerification,
+                    enabled = !state.resendingVerification,
+                ) {
+                    Text("Reenviar mail")
+                }
+            }
+        }
 
         DataRow("Nombre completo", profile.fullName)
         DataRow("Teléfono", profile.phoneNumber)

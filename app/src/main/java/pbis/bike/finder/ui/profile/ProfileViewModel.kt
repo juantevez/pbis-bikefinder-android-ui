@@ -109,6 +109,9 @@ data class ProfileUiState(
     val savingNotifications: Boolean = false,
     val notificationsError: String? = null,
 
+    /** Reenvío del mail de verificación en curso, para no mandarlo dos veces. */
+    val resendingVerification: Boolean = false,
+
     /** Confirmación efímera tras guardar. La pantalla la muestra y la limpia. */
     val message: String? = null,
 ) {
@@ -800,6 +803,39 @@ class ProfileViewModel @Inject constructor(
                     )
                 }
             }
+        }
+    }
+
+    /**
+     * Pide que reenvíen el mail para verificar la dirección.
+     *
+     * El link se consume en el navegador —apunta a `verify-email.html`—, así que
+     * la confirmación lo dice: si no, el usuario se queda mirando el chip
+     * esperando que cambie solo. Y no cambia acá: recién pasa a "Verificado"
+     * cuando el perfil se recarga después de abrir el link.
+     *
+     * **Acá sí se muestra el error del servidor**, al revés que en el pedido de
+     * recuperar contraseña. Aquel calla porque cualquiera puede escribir una
+     * dirección ajena y la respuesta revelaría si está registrada; este se
+     * dispara sobre el mail del usuario logueado, así que no hay nada que
+     * averiguar. Y hay un error que importa: `/auth/resend-verification` devuelve
+     * 400 "El email ya está verificado" —el de reset contesta 200 siempre—, que
+     * pasa si el perfil en pantalla quedó viejo. Tragarlo dejaría al usuario
+     * esperando un mail que nunca se mandó.
+     */
+    fun resendVerification() {
+        val email = _state.value.profile?.email ?: return
+        if (_state.value.resendingVerification) return
+
+        _state.update { it.copy(resendingVerification = true) }
+
+        viewModelScope.launch {
+            val result = authRepository.resendVerification(email)
+            val mensaje = when (result) {
+                is ApiResult.Success -> "Te mandamos un link. Se abre en el navegador."
+                else -> result.toUserMessage("No se pudo reenviar el mail.")
+            }
+            _state.update { it.copy(resendingVerification = false, message = mensaje) }
         }
     }
 

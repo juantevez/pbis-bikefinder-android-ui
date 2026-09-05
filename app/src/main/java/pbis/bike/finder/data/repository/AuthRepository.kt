@@ -16,6 +16,7 @@ import pbis.bike.finder.data.remote.dto.MfaLoginRequestDto
 import pbis.bike.finder.data.remote.dto.RecoveryCodesDto
 import pbis.bike.finder.data.remote.dto.RegisterRequestDto
 import pbis.bike.finder.data.remote.dto.RequestPasswordResetDto
+import pbis.bike.finder.data.remote.dto.ResendVerificationDto
 import pbis.bike.finder.data.remote.dto.TotpCodeRequestDto
 import pbis.bike.finder.data.remote.dto.TotpSetupDto
 import pbis.bike.finder.data.remote.dto.TotpStatusDto
@@ -235,6 +236,16 @@ class AuthRepository @Inject constructor(
      */
     suspend fun requestPasswordReset(email: String): ApiResult<Unit> =
         apiCall(json) { api.requestPasswordReset(RequestPasswordResetDto(email)).orThrow() }
+
+    /**
+     * Reenvía el mail con el link para verificar la dirección.
+     *
+     * Misma división que [requestPasswordReset]: el link apunta a
+     * `verify-email.html` del front web, así que la verificación se consume en el
+     * navegador y la app sólo pide que lo manden de nuevo.
+     */
+    suspend fun resendVerification(email: String): ApiResult<Unit> =
+        apiCall(json) { api.resendVerification(ResendVerificationDto(email)).orThrow() }
 
     /**
      * Cierra sesión.
