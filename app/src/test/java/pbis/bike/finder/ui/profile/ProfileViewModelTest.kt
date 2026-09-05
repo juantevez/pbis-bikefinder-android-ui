@@ -141,7 +141,8 @@ class ProfileViewModelTest {
             ),
         )
 
-        override suspend fun locality(localityId: Int): LocalityFullDto = notUsed()
+        var locality: () -> LocalityFullDto = { notUsed() }
+        override suspend fun locality(localityId: Int) = locality.invoke()
 
         override suspend fun searchLocalities(query: String, countryId: Int?, limit: Int) =
             LocalitySearchResponseDto()
@@ -379,6 +380,68 @@ class ProfileViewModelTest {
             assertNull(authApi.lastUpdate!!.countryName)
             assertNull(authApi.lastUpdate!!.localityName)
             assertNull(authApi.lastUpdate!!.localityId)
+        }
+
+    @Test
+    fun `la ubicación guardada se rotula segun el pais al que pertenece`() =
+        runTest(dispatcher) {
+            // El perfil guarda los NOMBRES, no los tipos: la columna se llama
+            // department_name aunque adentro tenga una provincia chilena. El tipo
+            // hay que pedirselo al catalogo, que devuelve la cadena entera tipada.
+            val authApi = FakeAuthApi {
+                UserInfoDto(
+                    id = "u-1",
+                    email = "juan@example.com",
+                    location = UserLocationDto(
+                        localityId = 500,
+                        localityName = "Tierra Amarilla",
+                        departmentName = "Copiapó",
+                        provinceName = "Atacama",
+                        countryName = "Chile",
+                    ),
+                )
+            }
+            val geoApi = FakeGeoApi()
+            geoApi.locality = {
+                LocalityFullDto(
+                    id = 500,
+                    name = "Tierra Amarilla",
+                    type = "COMUNA",
+                    adminLevel2 = LocalityFullDto.AdminLevel2InfoDto(
+                        id = 7, name = "Copiapó", type = "PROVINCE",
+                    ),
+                    adminLevel1 = LocalityFullDto.AdminLevel1InfoDto(
+                        id = 3, name = "Atacama", type = "REGION",
+                    ),
+                    country = LocalityFullDto.CountryInfoDto(id = 2, name = "Chile"),
+                )
+            }
+            val vm = viewModel(authApi = authApi, geoApi = geoApi)
+            advanceUntilIdle()
+
+            val state = vm.state.value
+            assertEquals("Región", state.etiquetaNivel1.nombre)
+            assertEquals("Provincia", state.etiquetaNivel2.nombre)
+            assertEquals("Comuna", state.etiquetaLocalidad.nombre)
+        }
+
+    @Test
+    fun `si el catalogo no resuelve la localidad quedan los rotulos por defecto`() =
+        runTest(dispatcher) {
+            // Es una etiqueta, no un dato: no justifica romper la vista del perfil.
+            val authApi = FakeAuthApi {
+                UserInfoDto(
+                    id = "u-1",
+                    email = "juan@example.com",
+                    location = UserLocationDto(localityId = 500),
+                )
+            }
+            val vm = viewModel(authApi = authApi, geoApi = FakeGeoApi())
+            advanceUntilIdle()
+
+            assertEquals("Provincia", vm.state.value.etiquetaNivel1.nombre)
+            assertEquals("Departamento o partido", vm.state.value.etiquetaNivel2.nombre)
+            assertNull(vm.state.value.loadError)
         }
 
     @Test

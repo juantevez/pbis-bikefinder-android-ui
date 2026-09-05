@@ -22,6 +22,8 @@ import pbis.bike.finder.data.remote.dto.UserInfoDto
 import pbis.bike.finder.data.repository.AuthRepository
 import pbis.bike.finder.data.repository.GeoRepository
 import pbis.bike.finder.data.repository.NotificationRepository
+import pbis.bike.finder.ui.common.LocationLabel
+import pbis.bike.finder.ui.common.LocationLabels
 import pbis.bike.finder.ui.common.isSafeToRetry
 import pbis.bike.finder.ui.common.matchesName
 import pbis.bike.finder.ui.common.toUserMessage
@@ -63,6 +65,19 @@ data class ProfileUiState(
     val localityId: Int? = null,
     val loadingGeo: Boolean = false,
     val geoError: String? = null,
+
+    /**
+     * Cómo se llama cada nivel en el país de esta ubicación. Sale del `type` que
+     * trae el catálogo, no de un `if` por país. Ver [LocationLabels].
+     *
+     * Sirve para los dos modos: en edición sale de la lista de cada nivel; en
+     * lectura, de la cadena tipada de la localidad guardada —el perfil guarda los
+     * **nombres** y la columna se llama `department_name` aunque adentro tenga
+     * una provincia chilena—.
+     */
+    val etiquetaNivel1: LocationLabel = LocationLabels.NIVEL1_DEFAULT,
+    val etiquetaNivel2: LocationLabel = LocationLabels.NIVEL2_DEFAULT,
+    val etiquetaLocalidad: LocationLabel = LocationLabels.LOCALIDAD_DEFAULT,
 
     // ── Notificaciones ───────────────────────────────────────────────────────
     val notifications: NotificationPreferencesDto? = null,
@@ -122,8 +137,9 @@ class ProfileViewModel @Inject constructor(
 
         viewModelScope.launch {
             when (val result = authRepository.profile(forceRefresh = true)) {
-                is ApiResult.Success -> _state.update {
-                    it.copy(loading = false, profile = result.data)
+                is ApiResult.Success -> {
+                    _state.update { it.copy(loading = false, profile = result.data) }
+                    rotularUbicacionGuardada(result.data.location?.localityId)
                 }
 
                 else -> _state.update {
@@ -138,6 +154,33 @@ class ProfileViewModel @Inject constructor(
     }
 
     // ── Modo edición ─────────────────────────────────────────────────────────
+
+    /**
+     * Rotula la ubicación guardada según el país al que pertenece.
+     *
+     * El perfil guarda los **nombres** ya elegidos, no los tipos: la columna se
+     * llama `department_name` aunque lo que tenga adentro sea una provincia
+     * chilena. Para saber cómo se llama cada nivel hay que preguntarle al
+     * catálogo por la localidad guardada, que en una sola llamada devuelve la
+     * cadena entera tipada (comuna → provincia → región).
+     *
+     * Si falla, los rótulos quedan en el default argentino y listo: es una
+     * etiqueta, no un dato, y no justifica romper la vista del perfil.
+     */
+    private suspend fun rotularUbicacionGuardada(localityId: Int?) {
+        if (localityId == null) return
+        val result = geoRepository.locality(localityId)
+        if (result !is ApiResult.Success) return
+
+        val loc = result.data
+        _state.update {
+            it.copy(
+                etiquetaNivel1 = LocationLabels.nivel1(loc.adminLevel1?.type),
+                etiquetaNivel2 = LocationLabels.nivel2(loc.adminLevel2?.type),
+                etiquetaLocalidad = LocationLabels.localidad(loc.type),
+            )
+        }
+    }
 
     /**
      * Copia el perfil a los campos editables.
@@ -232,11 +275,27 @@ class ProfileViewModel @Inject constructor(
         val country = countries.firstOrNull { it.name.matchesName(saved.countryName) }
             ?: return
         val provinces = fetchProvinces(country.id) ?: return
-        _state.update { it.copy(countryId = country.id, provinces = provinces) }
+        _state.update {
+            it.copy(
+                countryId = country.id,
+                provinces = provinces,
+                etiquetaNivel1 = LocationLabels.nivel1(
+                    LocationLabels.tipoComun(provinces) { p -> p.type },
+                ),
+            )
+        }
 
         val province = provinces.firstOrNull { it.name.matchesName(saved.provinceName) } ?: return
         val departments = fetchDepartments(province.id) ?: return
-        _state.update { it.copy(provinceId = province.id, departments = departments) }
+        _state.update {
+            it.copy(
+                provinceId = province.id,
+                departments = departments,
+                etiquetaNivel2 = LocationLabels.nivel2(
+                    LocationLabels.tipoComun(departments) { d -> d.type },
+                ),
+            )
+        }
 
         val department = departments.firstOrNull { it.name.matchesName(saved.departmentName) } ?: return
         val localities = fetchLocalities(department.id) ?: return
@@ -244,6 +303,9 @@ class ProfileViewModel @Inject constructor(
             it.copy(
                 departmentId = department.id,
                 localities = localities,
+                etiquetaLocalidad = LocationLabels.localidad(
+                    LocationLabels.tipoComun(localities) { l -> l.type },
+                ),
                 // El id guardado se usa tal cual: es el dato exacto, y compararlo
                 // por nombre contra la lista sería degradarlo a una coincidencia
                 // de texto teniendo la identidad a mano.
@@ -264,13 +326,28 @@ class ProfileViewModel @Inject constructor(
                 provinces = emptyList(),
                 departments = emptyList(),
                 localities = emptyList(),
+                // Los rótulos de abajo vuelven al genérico junto con las listas:
+                // cómo se llaman los niveles del país nuevo recién se sabe cuando
+                // llegue su lista.
+                etiquetaNivel1 = LocationLabels.NIVEL1_DEFAULT,
+                etiquetaNivel2 = LocationLabels.NIVEL2_DEFAULT,
+                etiquetaLocalidad = LocationLabels.LOCALIDAD_DEFAULT,
                 geoError = null,
             )
         }
         countryId ?: return
 
         viewModelScope.launch {
-            fetchProvinces(countryId)?.let { list -> _state.update { it.copy(provinces = list) } }
+            fetchProvinces(countryId)?.let { list ->
+                _state.update {
+                    it.copy(
+                        provinces = list,
+                        etiquetaNivel1 = LocationLabels.nivel1(
+                            LocationLabels.tipoComun(list) { p -> p.type },
+                        ),
+                    )
+                }
+            }
         }
     }
 
@@ -282,6 +359,8 @@ class ProfileViewModel @Inject constructor(
                 localityId = null,
                 departments = emptyList(),
                 localities = emptyList(),
+                etiquetaNivel2 = LocationLabels.NIVEL2_DEFAULT,
+                etiquetaLocalidad = LocationLabels.LOCALIDAD_DEFAULT,
                 geoError = null,
             )
         }
@@ -289,7 +368,14 @@ class ProfileViewModel @Inject constructor(
 
         viewModelScope.launch {
             fetchDepartments(provinceId)?.let { list ->
-                _state.update { it.copy(departments = list) }
+                _state.update {
+                    it.copy(
+                        departments = list,
+                        etiquetaNivel2 = LocationLabels.nivel2(
+                            LocationLabels.tipoComun(list) { d -> d.type },
+                        ),
+                    )
+                }
             }
         }
     }
@@ -300,6 +386,7 @@ class ProfileViewModel @Inject constructor(
                 departmentId = departmentId,
                 localityId = null,
                 localities = emptyList(),
+                etiquetaLocalidad = LocationLabels.LOCALIDAD_DEFAULT,
                 geoError = null,
             )
         }
@@ -307,7 +394,14 @@ class ProfileViewModel @Inject constructor(
 
         viewModelScope.launch {
             fetchLocalities(departmentId)?.let { list ->
-                _state.update { it.copy(localities = list) }
+                _state.update {
+                    it.copy(
+                        localities = list,
+                        etiquetaLocalidad = LocationLabels.localidad(
+                            LocationLabels.tipoComun(list) { l -> l.type },
+                        ),
+                    )
+                }
             }
         }
     }

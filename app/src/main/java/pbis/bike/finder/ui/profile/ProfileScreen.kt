@@ -66,6 +66,7 @@ import kotlinx.datetime.toLocalDateTime
 import pbis.bike.finder.data.local.ThemePreference
 import pbis.bike.finder.data.remote.dto.Gender
 import pbis.bike.finder.ui.common.Dropdown
+import pbis.bike.finder.ui.common.textoPrimero
 import pbis.bike.finder.ui.common.initialsOf
 import pbis.bike.finder.ui.common.formatLongDate
 import pbis.bike.finder.ui.theme.LocalThemeController
@@ -273,10 +274,12 @@ private fun ViewCard(state: ProfileUiState, onEdit: () -> Unit) {
             color = MaterialTheme.colorScheme.onSurface,
         )
 
+        // Los tres rótulos salen del país de la ubicación guardada, no de un texto
+        // fijo: `department_name` puede tener adentro una provincia chilena.
         DataRow("País", profile.location?.countryName)
-        DataRow("Provincia", profile.location?.provinceName)
-        DataRow("Departamento / partido", profile.location?.departmentName)
-        DataRow("Localidad", profile.location?.localityName)
+        DataRow(state.etiquetaNivel1.nombre, profile.location?.provinceName)
+        DataRow(state.etiquetaNivel2.nombre, profile.location?.departmentName)
+        DataRow(state.etiquetaLocalidad.nombre, profile.location?.localityName)
 
         Text(
             text = "Sólo es de referencia y no se comparte públicamente.",
@@ -403,7 +406,7 @@ private fun EditCard(state: ProfileUiState, viewModel: ProfileViewModel) {
         // Cada nivel se deshabilita hasta que el de arriba esté elegido: es el
         // mismo encadenado de los `<select disabled>` de la web.
         Dropdown(
-            label = "Provincia",
+            label = state.etiquetaNivel1.nombre,
             options = state.provinces,
             selected = state.provinces.firstOrNull { it.id == state.provinceId },
             optionLabel = { it.name },
@@ -413,23 +416,23 @@ private fun EditCard(state: ProfileUiState, viewModel: ProfileViewModel) {
         )
 
         Dropdown(
-            label = "Departamento / partido",
+            label = state.etiquetaNivel2.nombre,
             options = state.departments,
             selected = state.departments.firstOrNull { it.id == state.departmentId },
             optionLabel = { it.name },
             onSelect = { viewModel.selectDepartment(it?.id) },
             enabled = !state.saving && state.departments.isNotEmpty(),
-            placeholder = "Primero elegí una provincia",
+            placeholder = state.etiquetaNivel1.textoPrimero(),
         )
 
         Dropdown(
-            label = "Localidad",
+            label = state.etiquetaLocalidad.nombre,
             options = state.localities,
             selected = state.localities.firstOrNull { it.id == state.localityId },
             optionLabel = { it.name },
             onSelect = { viewModel.selectLocality(it?.id) },
             enabled = !state.saving && state.localities.isNotEmpty(),
-            placeholder = "Primero elegí un departamento",
+            placeholder = state.etiquetaNivel2.textoPrimero(),
         )
 
         if (state.loadingGeo) {
