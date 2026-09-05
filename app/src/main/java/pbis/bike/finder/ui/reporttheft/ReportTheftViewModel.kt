@@ -29,10 +29,13 @@ import pbis.bike.finder.data.repository.GeocodingRepository
 import pbis.bike.finder.data.repository.ResolvedAddress
 import pbis.bike.finder.data.repository.TheftRepository
 import pbis.bike.finder.ui.common.foldForMatch
+import pbis.bike.finder.ui.common.LocationLabel
+import pbis.bike.finder.ui.common.LocationLabels
+import pbis.bike.finder.ui.common.textoError
 import pbis.bike.finder.ui.common.toUserMessage
 import javax.inject.Inject
 
-private const val GEO_ERROR = "No se pudo cargar la lista de lugares."
+private const val PAISES_ERROR = "No se pudieron cargar los países."
 
 /**
  * Elige qué localidad del catálogo corresponde al nombre que devolvió OSM.
@@ -106,6 +109,14 @@ data class ReportTheftUiState(
     val provinceId: Int? = null,
     val departmentId: Int? = null,
     val localityId: Int? = null,
+
+    /**
+     * Cómo se llama cada nivel **en el país elegido**. Sale del `type` que trae
+     * cada lista, no de un `if` por país. Ver [LocationLabels].
+     */
+    val etiquetaNivel1: LocationLabel = LocationLabels.NIVEL1_DEFAULT,
+    val etiquetaNivel2: LocationLabel = LocationLabels.NIVEL2_DEFAULT,
+    val etiquetaLocalidad: LocationLabel = LocationLabels.LOCALIDAD_DEFAULT,
     val loadingGeo: Boolean = false,
     /**
      * Falla de location-service.
@@ -301,7 +312,7 @@ class ReportTheftViewModel @Inject constructor(
                 }
 
                 else -> _state.update {
-                    it.copy(loadingGeo = false, geoError = result.toUserMessage(GEO_ERROR))
+                    it.copy(loadingGeo = false, geoError = result.toUserMessage(PAISES_ERROR))
                 }
             }
         }
@@ -311,6 +322,8 @@ class ReportTheftViewModel @Inject constructor(
         // Cada nivel invalida los de abajo. Es el mismo reseteo en cascada del
         // alta: dejar colgada una localidad de otra provincia manda a la denuncia
         // una ubicación que no existe.
+        // Los rótulos de abajo vuelven al genérico junto con las listas: cómo se
+        // llaman los niveles del país nuevo recién se sabe cuando llegue su lista.
         _state.update {
             it.copy(
                 countryId = countryId,
@@ -320,6 +333,9 @@ class ReportTheftViewModel @Inject constructor(
                 provinces = emptyList(),
                 departments = emptyList(),
                 localities = emptyList(),
+                etiquetaNivel1 = LocationLabels.NIVEL1_DEFAULT,
+                etiquetaNivel2 = LocationLabels.NIVEL2_DEFAULT,
+                etiquetaLocalidad = LocationLabels.LOCALIDAD_DEFAULT,
                 geoError = null,
             )
         }
@@ -328,11 +344,21 @@ class ReportTheftViewModel @Inject constructor(
         viewModelScope.launch {
             _state.update { it.copy(loadingGeo = true) }
             when (val result = geoRepository.provinces(countryId)) {
-                is ApiResult.Success ->
-                    _state.update { it.copy(loadingGeo = false, provinces = result.data) }
+                is ApiResult.Success -> _state.update {
+                    it.copy(
+                        loadingGeo = false,
+                        provinces = result.data,
+                        etiquetaNivel1 = LocationLabels.nivel1(
+                            LocationLabels.tipoComun(result.data) { p -> p.type },
+                        ),
+                    )
+                }
 
                 else -> _state.update {
-                    it.copy(loadingGeo = false, geoError = result.toUserMessage(GEO_ERROR))
+                    it.copy(
+                        loadingGeo = false,
+                        geoError = result.toUserMessage(it.etiquetaNivel1.textoError()),
+                    )
                 }
             }
         }
@@ -346,6 +372,8 @@ class ReportTheftViewModel @Inject constructor(
                 localityId = null,
                 departments = emptyList(),
                 localities = emptyList(),
+                etiquetaNivel2 = LocationLabels.NIVEL2_DEFAULT,
+                etiquetaLocalidad = LocationLabels.LOCALIDAD_DEFAULT,
                 geoError = null,
             )
         }
@@ -354,11 +382,21 @@ class ReportTheftViewModel @Inject constructor(
         viewModelScope.launch {
             _state.update { it.copy(loadingGeo = true) }
             when (val result = geoRepository.departments(provinceId)) {
-                is ApiResult.Success ->
-                    _state.update { it.copy(loadingGeo = false, departments = result.data) }
+                is ApiResult.Success -> _state.update {
+                    it.copy(
+                        loadingGeo = false,
+                        departments = result.data,
+                        etiquetaNivel2 = LocationLabels.nivel2(
+                            LocationLabels.tipoComun(result.data) { d -> d.type },
+                        ),
+                    )
+                }
 
                 else -> _state.update {
-                    it.copy(loadingGeo = false, geoError = result.toUserMessage(GEO_ERROR))
+                    it.copy(
+                        loadingGeo = false,
+                        geoError = result.toUserMessage(it.etiquetaNivel2.textoError()),
+                    )
                 }
             }
         }
@@ -370,6 +408,7 @@ class ReportTheftViewModel @Inject constructor(
                 departmentId = departmentId,
                 localityId = null,
                 localities = emptyList(),
+                etiquetaLocalidad = LocationLabels.LOCALIDAD_DEFAULT,
                 geoError = null,
             )
         }
@@ -378,11 +417,21 @@ class ReportTheftViewModel @Inject constructor(
         viewModelScope.launch {
             _state.update { it.copy(loadingGeo = true) }
             when (val result = geoRepository.localities(departmentId)) {
-                is ApiResult.Success ->
-                    _state.update { it.copy(loadingGeo = false, localities = result.data) }
+                is ApiResult.Success -> _state.update {
+                    it.copy(
+                        loadingGeo = false,
+                        localities = result.data,
+                        etiquetaLocalidad = LocationLabels.localidad(
+                            LocationLabels.tipoComun(result.data) { l -> l.type },
+                        ),
+                    )
+                }
 
                 else -> _state.update {
-                    it.copy(loadingGeo = false, geoError = result.toUserMessage(GEO_ERROR))
+                    it.copy(
+                        loadingGeo = false,
+                        geoError = result.toUserMessage(it.etiquetaLocalidad.textoError()),
+                    )
                 }
             }
         }
@@ -609,12 +658,26 @@ class ReportTheftViewModel @Inject constructor(
         viewModelScope.launch {
             if (provinceId != null) {
                 (geoRepository.departments(provinceId) as? ApiResult.Success)?.let { r ->
-                    _state.update { it.copy(departments = r.data) }
+                    _state.update {
+                        it.copy(
+                            departments = r.data,
+                            etiquetaNivel2 = LocationLabels.nivel2(
+                                LocationLabels.tipoComun(r.data) { d -> d.type },
+                            ),
+                        )
+                    }
                 }
             }
             if (departmentId != null) {
                 (geoRepository.localities(departmentId) as? ApiResult.Success)?.let { r ->
-                    _state.update { it.copy(localities = r.data) }
+                    _state.update {
+                        it.copy(
+                            localities = r.data,
+                            etiquetaLocalidad = LocationLabels.localidad(
+                                LocationLabels.tipoComun(r.data) { l -> l.type },
+                            ),
+                        )
+                    }
                 }
             }
         }

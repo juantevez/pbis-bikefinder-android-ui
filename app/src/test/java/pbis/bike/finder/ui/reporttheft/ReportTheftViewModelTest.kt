@@ -31,7 +31,9 @@ import pbis.bike.finder.data.remote.api.NominatimAddressDto
 import pbis.bike.finder.data.remote.api.NominatimApi
 import pbis.bike.finder.data.remote.api.NominatimReverseDto
 import pbis.bike.finder.data.remote.api.TheftReportApi
+import pbis.bike.finder.data.remote.dto.AdminLevel1Dto
 import pbis.bike.finder.data.remote.dto.AdminLevel1ListResponseDto
+import pbis.bike.finder.data.remote.dto.AdminLevel2Dto
 import pbis.bike.finder.data.remote.dto.AdminLevel2ListResponseDto
 import pbis.bike.finder.data.remote.dto.AuthResponseDto
 import pbis.bike.finder.data.remote.dto.BicycleDto
@@ -102,12 +104,14 @@ class ReportTheftViewModelTest {
 
     private class FakeGeoApi(
         var countries: () -> CountryListResponseDto = { CountryListResponseDto() },
+        var provinces: () -> AdminLevel1ListResponseDto = { AdminLevel1ListResponseDto() },
+        var departments: () -> AdminLevel2ListResponseDto = { AdminLevel2ListResponseDto() },
         var localities: () -> LocalityListResponseDto = { LocalityListResponseDto() },
         var search: () -> LocalitySearchResponseDto = { LocalitySearchResponseDto() },
     ) : GeoApi {
         override suspend fun countries() = countries.invoke()
-        override suspend fun provinces(countryId: Int) = AdminLevel1ListResponseDto()
-        override suspend fun departments(provinceId: Int) = AdminLevel2ListResponseDto()
+        override suspend fun provinces(countryId: Int) = provinces.invoke()
+        override suspend fun departments(provinceId: Int) = departments.invoke()
         override suspend fun localities(departmentId: Int) = localities.invoke()
         override suspend fun searchLocalities(query: String, countryId: Int?, limit: Int) =
             search.invoke()
@@ -343,6 +347,97 @@ class ReportTheftViewModelTest {
 
         assertNotNull(sut.state.value.geoError)
         assertTrue(sut.state.value.countries.isEmpty())
+    }
+
+    @Test
+    fun `los rotulos de la jerarquia salen del tipo que trae cada lista`() = runTest {
+        // En Chile el árbol es Región → Provincia → Comuna. La etiqueta no se ata
+        // al país: sale del `type`, así que Uruguay y Brasil —que ya están en la
+        // tabla countries— no necesitan tocar la app.
+        val geoApi = FakeGeoApi(
+            provinces = {
+                AdminLevel1ListResponseDto(
+                    items = listOf(AdminLevel1Dto(id = 1, name = "Atacama", type = "REGION")),
+                )
+            },
+            departments = {
+                AdminLevel2ListResponseDto(
+                    items = listOf(AdminLevel2Dto(id = 2, name = "Copiapó", type = "PROVINCE")),
+                )
+            },
+            localities = {
+                LocalityListResponseDto(
+                    localities = listOf(
+                        LocalityDto(id = 9, name = "Tierra Amarilla", type = "COMUNA"),
+                    ),
+                )
+            },
+        )
+        val sut = viewModel(geoApi = geoApi)
+        sut.start("bici-1")
+        advanceUntilIdle()
+
+        sut.selectCountry(10)
+        advanceUntilIdle()
+        assertEquals("Región", sut.state.value.etiquetaNivel1.nombre)
+
+        sut.selectProvince(1)
+        advanceUntilIdle()
+        assertEquals("Provincia", sut.state.value.etiquetaNivel2.nombre)
+
+        sut.selectDepartment(2)
+        advanceUntilIdle()
+        assertEquals("Comuna", sut.state.value.etiquetaLocalidad.nombre)
+    }
+
+    @Test
+    fun `una lista con tipos mezclados cae al rotulo generico`() = runTest {
+        // Nada en el modelo impide que un país mezcle tipos en el mismo nivel:
+        // `type` es un varchar libre. Ahí no hay una sola palabra correcta, y el
+        // texto histórico es más honesto que elegir la del primero de la lista.
+        val geoApi = FakeGeoApi(
+            provinces = {
+                AdminLevel1ListResponseDto(
+                    items = listOf(
+                        AdminLevel1Dto(id = 1, name = "Atacama", type = "REGION"),
+                        AdminLevel1Dto(id = 2, name = "Buenos Aires", type = "PROVINCE"),
+                    ),
+                )
+            },
+        )
+        val sut = viewModel(geoApi = geoApi)
+        sut.start("bici-1")
+        advanceUntilIdle()
+
+        sut.selectCountry(10)
+        advanceUntilIdle()
+
+        assertEquals("Provincia", sut.state.value.etiquetaNivel1.nombre)
+    }
+
+    @Test
+    fun `cambiar de pais devuelve los rotulos de abajo al generico`() = runTest {
+        // Cómo se llaman los niveles del país nuevo recién se sabe cuando llegue
+        // su lista: dejar "Comuna" colgado de Chile sobre una cascada vacía es
+        // decirle al usuario algo que todavía no se sabe.
+        val geoApi = FakeGeoApi(
+            departments = {
+                AdminLevel2ListResponseDto(
+                    items = listOf(AdminLevel2Dto(id = 2, name = "Copiapó", type = "COMUNA")),
+                )
+            },
+        )
+        val sut = viewModel(geoApi = geoApi)
+        sut.start("bici-1")
+        advanceUntilIdle()
+
+        sut.selectProvince(1)
+        advanceUntilIdle()
+        assertEquals("Comuna", sut.state.value.etiquetaNivel2.nombre)
+
+        sut.selectCountry(11)
+        advanceUntilIdle()
+        assertEquals("Departamento o partido", sut.state.value.etiquetaNivel2.nombre)
     }
 
     @Test

@@ -59,6 +59,7 @@ import kotlinx.datetime.TimeZone
 import kotlinx.datetime.atStartOfDayIn
 import kotlinx.datetime.toLocalDateTime
 import pbis.bike.finder.ui.common.Dropdown
+import pbis.bike.finder.ui.common.textoPrimero
 import pbis.bike.finder.ui.common.MapPicker
 
 /**
@@ -461,8 +462,11 @@ private fun LocationSection(
             optionLabel = { it.name },
             onSelect = { onCountry(it?.id) },
         )
+        // Los tres rótulos salen del `type` que trae cada lista, no de un `if` por
+        // país: en Chile este árbol es Región → Provincia → Comuna, y en CABA es
+        // Comuna → Barrio. Ver [LocationLabels].
         Dropdown(
-            label = "Provincia",
+            label = state.etiquetaNivel1.nombre,
             options = state.provinces,
             selected = state.provinces.firstOrNull { it.id == state.provinceId },
             optionLabel = { it.name },
@@ -471,22 +475,22 @@ private fun LocationSection(
             placeholder = "Elegí un país primero",
         )
         Dropdown(
-            label = "Departamento o partido",
+            label = state.etiquetaNivel2.nombre,
             options = state.departments,
             selected = state.departments.firstOrNull { it.id == state.departmentId },
             optionLabel = { it.name },
             onSelect = { onDepartment(it?.id) },
             enabled = state.departments.isNotEmpty(),
-            placeholder = "Elegí una provincia primero",
+            placeholder = state.etiquetaNivel1.textoPrimero(),
         )
         Dropdown(
-            label = "Localidad",
+            label = state.etiquetaLocalidad.nombre,
             options = state.localities,
             selected = state.localities.firstOrNull { it.id == state.localityId },
             optionLabel = { it.name },
             onSelect = { onLocality(it?.id) },
             enabled = state.localities.isNotEmpty(),
-            placeholder = "Elegí un departamento primero",
+            placeholder = state.etiquetaNivel2.textoPrimero(),
         )
 
         Text(
