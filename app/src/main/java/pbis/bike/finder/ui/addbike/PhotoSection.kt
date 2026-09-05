@@ -50,7 +50,7 @@ fun PhotoSection(
     modifier: Modifier = Modifier,
 ) {
     val pickPhotos = rememberLauncherForActivityResult(
-        ActivityResultContracts.PickMultipleVisualMedia(MAX_FOTOS),
+        ActivityResultContracts.PickMultipleVisualMedia(AddBikeViewModel.MAX_FOTOS),
     ) { uris -> onPhotosPicked(uris.map(Uri::toString)) }
 
     /**
@@ -97,15 +97,24 @@ fun PhotoSection(
             }
         }
 
+        val lleno = photos.size >= AddBikeViewModel.MAX_FOTOS
+
         OutlinedButton(
             onClick = {
                 pickPhotos.launch(
                     PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                 )
             },
+            enabled = !lleno,
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Text(if (photos.isEmpty()) "Agregar fotos" else "Agregar más fotos")
+            Text(
+                when {
+                    lleno -> "Llegaste al máximo de ${AddBikeViewModel.MAX_FOTOS}"
+                    photos.isEmpty() -> "Agregar fotos (máx. ${AddBikeViewModel.MAX_FOTOS})"
+                    else -> "Agregar más fotos (${photos.size}/${AddBikeViewModel.MAX_FOTOS})"
+                }
+            )
         }
 
         Row(
@@ -170,11 +179,3 @@ private fun PhotoThumbnail(photo: PendingPhoto, onRemove: () -> Unit) {
     }
 }
 
-/**
- * Techo de fotos por alta.
- *
- * No sale de un límite del backend sino del ancho de subida: son archivos de
- * varios MB desde un teléfono, y el propio `media-service` corta cada archivo en
- * 10MB y la request entera en 15MB.
- */
-private const val MAX_FOTOS = 8

@@ -8,6 +8,8 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import kotlinx.serialization.json.Json
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -38,6 +40,7 @@ import pbis.bike.finder.data.repository.CatalogRepository
 import pbis.bike.finder.data.repository.PendingPhoto
 import pbis.bike.finder.data.repository.PhotoUploadOutcome
 import pbis.bike.finder.data.repository.PhotoUploader
+import retrofit2.HttpException
 import retrofit2.Response
 
 /**
@@ -337,7 +340,28 @@ class AddBikeViewModelTest {
     @Test
     fun `los campos de texto vacios se mandan como null y no como cadena vacia`() = runTest {
         // "" y null no significan lo mismo para el backend: una cadena vacía es un
-        // número de serie vacío guardado, null es "no hay dato".
+        // dato vacío guardado, null es "no hay dato".
+        val api = apiWithCatalog()
+        val sut = viewModel(api)
+        advanceUntilIdle()
+        api.details = detailsFor(1000)
+
+        sut.onBrandSelected(1)
+        advanceUntilIdle()
+        sut.onModelSelected(1000)
+        advanceUntilIdle()
+        sut.onSerialNumberChange(SERIE)
+        sut.onNotesChange("   ")
+        sut.submit()
+        advanceUntilIdle()
+
+        assertNull(api.lastCatalogRequest!!.notes)
+    }
+
+    @Test
+    fun `el numero de serie es obligatorio en los dos modos`() = runTest {
+        // Sin serie la bici no se puede identificar cuando aparece, que es todo el
+        // punto de registrarla. El backend la sigue aceptando vacía: el corte es acá.
         val api = apiWithCatalog()
         val sut = viewModel(api)
         advanceUntilIdle()
@@ -351,8 +375,35 @@ class AddBikeViewModelTest {
         sut.submit()
         advanceUntilIdle()
 
-        assertNull(api.lastCatalogRequest!!.serialNumber)
-        assertNull(api.lastCatalogRequest!!.notes)
+        assertTrue(sut.state.value.fieldErrors.containsKey(AddBikeViewModel.FIELD_SERIAL))
+        // No se mandó nada: la validación corta antes del viaje.
+        assertNull(api.lastCatalogRequest)
+
+        sut.setMode(AddBikeMode.MANUAL)
+        sut.onPrimaryColorSelected(7)
+        sut.submit()
+        advanceUntilIdle()
+
+        assertTrue(sut.state.value.fieldErrors.containsKey(AddBikeViewModel.FIELD_SERIAL))
+        assertNull(api.lastManualRequest)
+    }
+
+    @Test
+    fun `la serie se manda sin espacios de sobra`() = runTest {
+        val api = apiWithCatalog()
+        val sut = viewModel(api)
+        advanceUntilIdle()
+        api.details = detailsFor(1000)
+
+        sut.onBrandSelected(1)
+        advanceUntilIdle()
+        sut.onModelSelected(1000)
+        advanceUntilIdle()
+        sut.onSerialNumberChange("  $SERIE ")
+        sut.submit()
+        advanceUntilIdle()
+
+        assertEquals(SERIE, api.lastCatalogRequest!!.serialNumber)
     }
 
     @Test
@@ -367,6 +418,7 @@ class AddBikeViewModelTest {
         sut.onModelSelected(1000)
         advanceUntilIdle()
         sut.onFrameSizeSelected("M")
+        sut.onSerialNumberChange(SERIE)
         sut.submit()
         advanceUntilIdle()
 
@@ -393,6 +445,7 @@ class AddBikeViewModelTest {
         advanceUntilIdle()
         sut.onModelSelected(1000)
         advanceUntilIdle()
+        sut.onSerialNumberChange(SERIE)
         sut.submit()
         advanceUntilIdle()
 
@@ -406,8 +459,47 @@ class AddBikeViewModelTest {
         )
     }
 
+    @Test
+    fun `un 409 explica que la serie ya esta tomada`() = runTest {
+        // Es el único error del alta donde el usuario puede hacer algo concreto, y
+        // desde que la serie es obligatoria es el que más se va a ver. El texto del
+        // backend ahí es genérico.
+        val api = object : FakeBicycleApi() {
+            override suspend fun registerFromCatalog(
+                body: RegisterFromCatalogRequestDto,
+            ): BicycleDto = throw HttpException(
+                Response.error<BicycleDto>(
+                    409,
+                    """{"error":"Conflict","message":"Duplicate serial"}"""
+                        .toResponseBody("application/json".toMediaType()),
+                )
+            )
+        }.apply {
+            formData = InitialFormDataDto(frameBrands = brands, bikeTypes = bikeTypes)
+            bikesByBrand = listOf(marlin)
+            details = detailsFor(1000)
+        }
+        val sut = viewModel(api)
+        advanceUntilIdle()
+
+        sut.onBrandSelected(1)
+        advanceUntilIdle()
+        sut.onModelSelected(1000)
+        advanceUntilIdle()
+        sut.onSerialNumberChange(SERIE)
+        sut.submit()
+        advanceUntilIdle()
+
+        assertNull(sut.state.value.createdBikeId)
+        assertTrue(sut.state.value.formError!!.contains("ya está registrado"))
+    }
+
     /** URI de mentira: [PendingPhoto] la guarda como texto justamente para esto. */
     private fun uri(id: String): String = "content://test/$id"
+
+    private companion object {
+        const val SERIE = "WTU123456789"
+    }
 
     // ── Fotos ────────────────────────────────────────────────────────────────
 
@@ -421,6 +513,9 @@ class AddBikeViewModelTest {
         advance()
         sut.onModelSelected(1000)
         advance()
+        // La serie es obligatoria desde agosto de 2026: sin esto la validación
+        // corta el envío y ningún test de fotos llegaría a la subida.
+        sut.onSerialNumberChange(SERIE)
     }
 
     @Test
@@ -500,6 +595,36 @@ class AddBikeViewModelTest {
         val photos = sut.state.value.photos
         assertEquals(1, photos.size)
         assertTrue(photos.first().isPrimary)
+    }
+
+    @Test
+    fun `las fotos de mas se descartan y se avisan una sola vez`() = runTest {
+        // El selector del sistema limita la tanda pero no sabe cuántas había de
+        // antes: sin este corte, elegir cuatro con dos cargadas descartaba dos en
+        // silencio y el usuario se enteraba recién al ver el detalle.
+        val api = apiWithCatalog()
+        val sut = viewModel(api)
+        advanceUntilIdle()
+
+        sut.onPhotosPicked(listOf(uri("a"), uri("b"), uri("c")))
+        sut.onPhotosPicked(listOf(uri("d"), uri("e"), uri("f")))
+
+        val state = sut.state.value
+        assertEquals(AddBikeViewModel.MAX_FOTOS, state.photos.size)
+        assertEquals(listOf(uri("a"), uri("b"), uri("c"), uri("d")), state.photos.map { it.uri })
+        assertTrue(state.photoPickWarning!!.contains("2 foto"))
+    }
+
+    @Test
+    fun `hacer lugar borra el aviso de fotos descartadas`() = runTest {
+        val api = apiWithCatalog()
+        val sut = viewModel(api)
+        advanceUntilIdle()
+
+        sut.onPhotosPicked(listOf(uri("a"), uri("b"), uri("c"), uri("d"), uri("e")))
+        sut.onPhotoRemoved(uri("a"))
+
+        assertNull(sut.state.value.photoPickWarning)
     }
 
     @Test

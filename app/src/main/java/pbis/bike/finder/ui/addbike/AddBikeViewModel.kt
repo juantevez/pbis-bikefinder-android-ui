@@ -77,6 +77,14 @@ data class AddBikeUiState(
      * se puede reintentar después sin volver a registrar nada.
      */
     val photoWarning: String? = null,
+
+    /**
+     * Aviso de fotos descartadas al elegirlas, por pasarse de
+     * [AddBikeViewModel.MAX_FOTOS]. Esto
+     * es antes del alta y se puede corregir en el momento, a diferencia de
+     * [photoWarning].
+     */
+    val photoPickWarning: String? = null,
 )
 
 /**
@@ -308,19 +316,34 @@ class AddBikeViewModel @Inject constructor(
         if (uris.isEmpty()) return
         _state.update { current ->
             val yaHabia = current.photos.isNotEmpty()
-            val nuevas = uris.mapIndexed { index, uri ->
+            val lugar = MAX_FOTOS - current.photos.size
+            // Las que no entran se avisan una sola vez y con el motivo. El selector
+            // del sistema ya limita la tanda, pero no sabe cuántas había de antes:
+            // sin esto, elegir cuatro con dos ya cargadas descartaba dos en silencio.
+            val entran = uris.take(lugar)
+            val sobran = uris.size - entran.size
+
+            val nuevas = entran.mapIndexed { index, uri ->
                 PendingPhoto(
                     uri = uri,
                     photoType = PhotoType.GENERAL,
                     isPrimary = !yaHabia && index == 0,
                 )
             }
-            current.copy(photos = current.photos + nuevas)
+            current.copy(
+                photos = current.photos + nuevas,
+                photoPickWarning = if (sobran > 0) {
+                    "$sobran foto(s) no entraron: el máximo es $MAX_FOTOS."
+                } else {
+                    null
+                },
+            )
         }
     }
 
     fun onPhotoRemoved(uri: String) = _state.update { current ->
         val restantes = current.photos.filterNot { it.uri == uri }
+        // Sacar una foto libera lugar: el aviso de "no entraron" deja de ser cierto.
         // Si se sacó la principal, la primera que quede toma su lugar: quedarse
         // sin foto principal deja la bici sin imagen en el listado.
         val hayPrincipal = restantes.any { it.isPrimary }
@@ -330,6 +353,7 @@ class AddBikeViewModel @Inject constructor(
             } else {
                 restantes.mapIndexed { i, p -> p.copy(isPrimary = i == 0) }
             },
+            photoPickWarning = null,
         )
     }
 
@@ -361,7 +385,7 @@ class AddBikeViewModel @Inject constructor(
                         catalogBikeId = current.catalogBikeId!!,
                         colorwayId = current.colorwayId,
                         frameSize = current.frameSize,
-                        serialNumber = current.serialNumber.trim().ifBlank { null },
+                        serialNumber = current.serialNumber.trim(),
                         notes = current.notes.trim().ifBlank { null },
                     )
                 )
@@ -373,7 +397,7 @@ class AddBikeViewModel @Inject constructor(
                         year = current.manualYear.toIntOrNull(),
                         bikeTypeId = current.bikeTypeId,
                         frameSize = current.frameSize,
-                        serialNumber = current.serialNumber.trim().ifBlank { null },
+                        serialNumber = current.serialNumber.trim(),
                         primaryColorId = current.primaryColorId,
                         primaryColorCustom = current.primaryColorCustom.trim().ifBlank { null },
                         notes = current.notes.trim().ifBlank { null },
@@ -387,12 +411,28 @@ class AddBikeViewModel @Inject constructor(
                 else -> _state.update {
                     it.copy(
                         submitting = false,
-                        formError = result.toUserMessage("No se pudo registrar la bicicleta."),
+                        formError = mensajeDeError(result),
                     )
                 }
             }
         }
     }
+
+    /**
+     * Qué mostrarle al usuario cuando el alta no entra.
+     *
+     * El 409 se traduce aparte porque es el único caso donde hay algo concreto que
+     * hacer: el número de serie ya está tomado por otra bici vigente. El texto del
+     * backend ahí es genérico, y desde que la serie es obligatoria es el error que
+     * más se va a ver.
+     */
+    private fun mensajeDeError(result: ApiResult<*>): String =
+        if (result is ApiResult.HttpError && result.code == 409) {
+            "Ese número de serie ya está registrado en otra bicicleta activa. " +
+                "Revisá que lo hayas copiado bien."
+        } else {
+            result.toUserMessage("No se pudo registrar la bicicleta.")
+        }
 
     /**
      * Sube las fotos de una bici ya creada.
@@ -441,6 +481,14 @@ class AddBikeViewModel @Inject constructor(
     private fun validate(state: AddBikeUiState): Map<String, String> {
         val errors = mutableMapOf<String, String>()
 
+        // El número de serie es obligatorio en los dos modos desde agosto de 2026.
+        // No es un requisito del backend —lo sigue aceptando vacío— sino del
+        // producto: una bici sin serie no se puede identificar cuando aparece, que
+        // es todo el punto de tenerla registrada.
+        if (state.serialNumber.isBlank()) {
+            errors[FIELD_SERIAL] = "El número de serie es obligatorio"
+        }
+
         when (state.mode) {
             AddBikeMode.CATALOG -> {
                 if (state.brandId == null) errors[FIELD_BRAND] = "Seleccioná una marca"
@@ -462,8 +510,21 @@ class AddBikeViewModel @Inject constructor(
     }
 
     companion object {
+        /**
+         * Techo de fotos por bici.
+         *
+         * Tiene que coincidir con el `MAX_FOTOS` de la pantalla de edición del
+         * front web (`actualizar-componentes.js`): si el alta admitiera más, una
+         * bici podría nacer por encima del tope que la edición después hace
+         * cumplir, y el usuario vería "llegaste al máximo" sin haber agregado
+         * nada. `media-service` no valida cantidad — el límite vive sólo en los
+         * clientes.
+         */
+        const val MAX_FOTOS = 4
+
         const val FIELD_BRAND = "brand"
         const val FIELD_MODEL = "model"
         const val FIELD_COLOR = "color"
+        const val FIELD_SERIAL = "serial"
     }
 }

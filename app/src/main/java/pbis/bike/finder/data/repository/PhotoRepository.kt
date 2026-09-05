@@ -46,6 +46,7 @@ class PhotoRepository @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val api: BicycleApi,
     private val json: Json,
+    private val rescaler: ImageRescaler,
 ) : PhotoUploader {
     /**
      * Sube las fotos de una bici **ya creada**.
@@ -83,9 +84,19 @@ class PhotoRepository @Inject constructor(
         gpsAnalysisConsent: Boolean,
     ): Boolean {
         val uri = photo.uri.toUri()
-        val bytes = readBytes(uri, gpsAnalysisConsent) ?: return false
+        val original = readBytes(uri, gpsAnalysisConsent) ?: return false
+        val mimeOriginal = context.contentResolver.getType(uri) ?: "image/jpeg"
 
-        val mime = context.contentResolver.getType(uri) ?: "image/jpeg"
+        // Reescalado recién acá y no al elegir la foto: la vista previa sale del
+        // original, y si el reescalado falla se sube el original sin que el
+        // usuario se entere de nada. Ver [ImageRescaler] — conserva el EXIF, que es
+        // de donde salen el GPS (con consentimiento) y los datos de cámara.
+        val reescalada = withContext(Dispatchers.Default) {
+            rescaler.rescale(mimeOriginal, original)
+        }
+        val bytes = reescalada ?: original
+        val mime = if (reescalada != null) "image/jpeg" else mimeOriginal
+
         val part = MultipartBody.Part.createFormData(
             PhotoUploadFields.FILE,
             fileName(uri, mime),

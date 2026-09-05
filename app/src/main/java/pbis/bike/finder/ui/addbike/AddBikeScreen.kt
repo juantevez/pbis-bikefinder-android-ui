@@ -155,14 +155,21 @@ private fun Form(
 
         HorizontalDivider(Modifier.padding(vertical = 4.dp))
 
+        val serialError = state.fieldErrors[AddBikeViewModel.FIELD_SERIAL]
+
         OutlinedTextField(
             value = state.serialNumber,
             onValueChange = viewModel::onSerialNumberChange,
-            label = { Text("Número de serie") },
+            label = { Text("Número de serie *") },
+            isError = serialError != null,
             supportingText = {
                 // No es un campo más: es el dato que permite identificar la bici
-                // si aparece. Vale la pena decírselo al usuario.
-                Text("Es lo que más ayuda a recuperarla si te la roban.")
+                // si aparece, y por eso desde agosto de 2026 es obligatorio.
+                Text(
+                    serialError
+                        ?: "Generalmente está debajo del pedalier. Es lo que permite " +
+                        "identificar tu bicicleta si aparece."
+                )
             },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
@@ -185,6 +192,15 @@ private fun Form(
             onPhotoRemoved = viewModel::onPhotoRemoved,
             onGpsConsentChanged = viewModel::onGpsConsentChanged,
         )
+
+        state.photoPickWarning?.let { aviso ->
+            Text(
+                text = aviso,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
 
         state.photoWarning?.let { warning ->
             Card(

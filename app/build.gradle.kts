@@ -86,6 +86,10 @@ dependencies {
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.core.ktx)
+    // Para conservar el EXIF al reescalar una foto antes de subirla: el bitmap
+    // reescalado sale sin metadatos, y el GPS y los datos de camara son lo que
+    // media-service y fraud-detection leen de ahi. Ver ImageRescaler.
+    implementation(libs.androidx.exifinterface)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.coil.compose)
     // El fetcher de red de Coil no viene con coil-compose: sin esto, un modelo
