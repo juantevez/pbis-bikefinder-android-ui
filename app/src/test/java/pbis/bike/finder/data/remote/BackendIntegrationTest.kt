@@ -54,6 +54,18 @@ class BackendIntegrationTest {
 
         private var backendUp = false
 
+        /**
+         * Si además de estar levantado el backend tiene la cuenta de prueba.
+         *
+         * Es una condición aparte de [backendUp] porque falla aparte: la cuenta
+         * vive en el postgres de desarrollo y **no la crea ninguna migración**, así
+         * que se pierde al recrear la base. Cuando eso pasa, cinco tests de esta
+         * clase se caían con `HTTP 401 Unauthorized` —un mensaje que apunta a las
+         * credenciales del cliente y no a que falta el fixture— en vez de saltearse
+         * como cuando el stack no está.
+         */
+        private var cuentaDeSmoke = false
+
         @Volatile
         private var cachedToken: String? = null
 
@@ -91,7 +103,35 @@ class BackendIntegrationTest {
             } catch (_: Exception) {
                 false
             }
+
+            // El login va por HttpURLConnection y no por Retrofit para no depender
+            // del cliente que estos tests justamente están verificando.
+            cuentaDeSmoke = backendUp && try {
+                val connection = URL("$GATEWAY/auth/login").openConnection() as HttpURLConnection
+                connection.connectTimeout = 3000
+                connection.readTimeout = 3000
+                connection.requestMethod = "POST"
+                connection.doOutput = true
+                connection.setRequestProperty("Content-Type", "application/json")
+                connection.outputStream.use {
+                    it.write(
+                        """{"email":"$EMAIL","password":"$PASSWORD"}""".toByteArray()
+                    )
+                }
+                connection.responseCode in 200..299
+            } catch (_: Exception) {
+                false
+            }
         }
+    }
+
+    /** Los tests que necesitan la cuenta de prueba, y no sólo el stack arriba. */
+    private fun assumeCuentaDeSmoke() {
+        assumeTrue("Gateway no responde en $GATEWAY", backendUp)
+        assumeTrue(
+            "Falta la cuenta de prueba $EMAIL en el postgres de desarrollo",
+            cuentaDeSmoke,
+        )
     }
 
     private val json = BikeFinderJson
@@ -162,7 +202,7 @@ class BackendIntegrationTest {
 
     @Test
     fun `login real deserializa en AuthResponseDto`() = runBlocking {
-        assumeTrue("Gateway no responde en $GATEWAY", backendUp)
+        assumeCuentaDeSmoke()
         pace()
 
         val response = authApi.login(LoginRequestDto(EMAIL, PASSWORD))
@@ -180,7 +220,7 @@ class BackendIntegrationTest {
 
     @Test
     fun `el refresh rota los dos tokens`() = runBlocking {
-        assumeTrue("Gateway no responde en $GATEWAY", backendUp)
+        assumeCuentaDeSmoke()
         pace()
 
         val login = authApi.login(LoginRequestDto(EMAIL, PASSWORD))
@@ -216,7 +256,7 @@ class BackendIntegrationTest {
 
     @Test
     fun `el listado de bicicletas deserializa con token real`() = runBlocking {
-        assumeTrue("Gateway no responde en $GATEWAY", backendUp)
+        assumeCuentaDeSmoke()
         pace()
 
         val bikes = authedBicycleApi(token()).list()
@@ -268,7 +308,7 @@ class BackendIntegrationTest {
 
     @Test
     fun `el alta desde catalogo crea una bici que aparece en el listado`() = runBlocking {
-        assumeTrue("Gateway no responde en $GATEWAY", backendUp)
+        assumeCuentaDeSmoke()
         pace()
 
         val api = authedBicycleApi(token())
@@ -325,7 +365,7 @@ class BackendIntegrationTest {
 
     @Test
     fun `una foto sube por media-service y vuelve en el listado de fotos`() = runBlocking {
-        assumeTrue("Gateway no responde en $GATEWAY", backendUp)
+        assumeCuentaDeSmoke()
         pace()
 
         val api = authedBicycleApi(token())

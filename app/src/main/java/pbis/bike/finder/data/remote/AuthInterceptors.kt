@@ -75,7 +75,15 @@ class TokenAuthenticator @Inject constructor(
         if (response.request.header(HEADER_SKIP_AUTH) != null) return null
         if (responseCount(response) > 1) return null
 
-        return when (runBlocking { sessionManager.refresh() }) {
+        // Con qué token salió esta request. Es lo que le permite a SessionManager
+        // saber si otra request en paralelo ya renovó mientras ésta esperaba el
+        // mutex: en ese caso no hay que pedir tokens nuevos, sólo reintentar con
+        // los que ya hay.
+        val tokenRechazado = response.request.header(HEADER_AUTHORIZATION)
+            ?.removePrefix("Bearer ")
+            ?.trim()
+
+        return when (runBlocking { sessionManager.refresh(tokenRechazado) }) {
             RefreshOutcome.Ok -> {
                 val token = runBlocking { tokenStore.accessToken() } ?: return null
                 response.request.newBuilder()

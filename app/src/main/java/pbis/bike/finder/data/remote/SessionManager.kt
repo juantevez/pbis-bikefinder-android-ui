@@ -70,8 +70,25 @@ class SessionManager @Inject constructor(
      * cinco refresh, cuatro de los cuales usan un refresh token que la primera
      * acaba de rotar, y el backend los rechaza: la sesión se cae justo por
      * intentar salvarla.
+     *
+     * Serializar no alcanza, y por eso está [tokenRechazado]: las que esperaban
+     * entraban igual a renovar de nuevo, una por una. Funcionaba —cada una leía
+     * el refresh token ya rotado— pero emitía N pares de tokens para un problema
+     * que se resolvió con el primero, y cada rotación de más es una ventana en la
+     * que otro cliente logueado con la misma cuenta se queda con un token que
+     * acaba de ser consumido. Con el access token que se comió el 401 se
+     * distingue "hay que renovar" de "ya renovó otro": si el guardado es
+     * distinto, la sesión ya está sana y no hay nada que pedir.
+     *
+     * @param tokenRechazado el access token con el que salió la request que
+     *   recibió el 401. `null` fuerza la renovación, que es el comportamiento
+     *   correcto para un llamador que no sabe con qué token salió.
      */
-    suspend fun refresh(): RefreshOutcome = refreshMutex.withLock {
+    suspend fun refresh(tokenRechazado: String? = null): RefreshOutcome = refreshMutex.withLock {
+        if (tokenRechazado != null && tokenStore.accessToken() != tokenRechazado) {
+            return@withLock RefreshOutcome.Ok
+        }
+
         val refreshToken = tokenStore.refreshToken() ?: return@withLock RefreshOutcome.Expired
 
         val response = try {

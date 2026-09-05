@@ -97,6 +97,32 @@ class SessionManagerTest {
         SessionManager(store, Provider { api })
 
     @Test
+    fun `si otra request ya renovo no se pide un par nuevo`() = runTest {
+        // La segunda de dos requests que se comieron un 401 a la vez: para cuando
+        // consigue el mutex, la primera ya guardó tokens nuevos. Renovar otra vez
+        // emitiría un par que nadie pidió y rotaría el refresh token de nuevo, y
+        // cada rotación de más deja a otro cliente de la misma cuenta con un
+        // token recién consumido.
+        val store = FakeTokenStore(access = "access-nuevo", refresh = "refresh-nuevo")
+        var llamadas = 0
+        val sut = manager(store, FakeAuthApi { llamadas++; errorResponse(401) })
+
+        assertEquals(RefreshOutcome.Ok, sut.refresh(tokenRechazado = "access-viejo"))
+        assertEquals(0, llamadas)
+        assertEquals("refresh-nuevo", store.refresh)
+    }
+
+    @Test
+    fun `si el token guardado sigue siendo el rechazado si se renueva`() = runTest {
+        val store = FakeTokenStore()
+        var llamadas = 0
+        val sut = manager(store, FakeAuthApi { llamadas++; errorResponse(401) })
+
+        assertEquals(RefreshOutcome.Expired, sut.refresh(tokenRechazado = "access-viejo"))
+        assertEquals(1, llamadas)
+    }
+
+    @Test
     fun `un 401 del refresh vence la sesion`() = runTest {
         val store = FakeTokenStore()
         val sut = manager(store, FakeAuthApi { errorResponse(401) })
