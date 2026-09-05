@@ -79,13 +79,6 @@ enum class TheftTimeSlot(val apiValue: String, val label: String) {
     EVENING("EVENING", "Noche (18:00 - 00:00)"),
 }
 
-/** Monedas de la recompensa. Las mismas tres que ofrece el front web. */
-enum class RewardCurrency(val apiValue: String, val label: String) {
-    ARS("ARS", "ARS $"),
-    USD("USD", "USD $"),
-    EUR("EUR", "EUR €"),
-}
-
 /** Tipos de vía que entiende el backend, con su etiqueta para la UI. */
 enum class StreetType(val apiValue: String, val label: String) {
     CALLE("CALLE", "Calle"),
@@ -156,10 +149,14 @@ data class ReportTheftUiState(
     val contactEmail: String = "",
     val contactPublic: Boolean = false,
 
-    // Recompensa
+    /**
+     * Recompensa: un sí/no y nada más.
+     *
+     * El monto y la moneda se sacaron en agosto de 2026 —el backend dejó de
+     * guardarlos— porque el arreglo ocurre fuera del sistema: se publica que hay
+     * recompensa y la cifra la acuerdan las dos personas.
+     */
     val rewardOffered: Boolean = false,
-    val rewardAmount: String = "",
-    val rewardCurrency: RewardCurrency = RewardCurrency.ARS,
 
     val submitting: Boolean = false,
     val formError: String? = null,
@@ -639,13 +636,6 @@ class ReportTheftViewModel @Inject constructor(
     fun setContactEmail(value: String) = _state.update { it.copy(contactEmail = value) }
     fun setContactPublic(value: Boolean) = _state.update { it.copy(contactPublic = value) }
     fun setRewardOffered(value: Boolean) = _state.update { it.copy(rewardOffered = value) }
-    fun setRewardAmount(value: String) = _state.update { it.copy(rewardAmount = value) }
-    /**
-     * La moneda no puede quedar vacía: si hay recompensa hay que mandar alguna,
-     * así que un `null` del desplegable deja la que estaba.
-     */
-    fun setRewardCurrency(value: RewardCurrency?) =
-        _state.update { if (value == null) it else it.copy(rewardCurrency = value) }
 
     // ── Envío ────────────────────────────────────────────────────────────────
 
@@ -802,17 +792,8 @@ class ReportTheftViewModel @Inject constructor(
             put("email", "Máximo ${ReportTheftRequestDto.MAX_CONTACT_EMAIL} caracteres.")
         }
 
-        if (s.rewardOffered) {
-            val amount = s.rewardAmount.trim().replace(',', '.')
-            val value = amount.toBigDecimalOrNull()
-            when {
-                amount.isBlank() -> put("recompensa", "Poné el monto, o desactivá la recompensa.")
-                value == null -> put("recompensa", "El monto tiene que ser un número.")
-                value.signum() < 0 -> put("recompensa", "El monto no puede ser negativo.")
-                value.precision() - value.scale() > 10 -> put("recompensa", "El monto es demasiado grande.")
-                value.scale() > 2 -> put("recompensa", "Como máximo dos decimales.")
-            }
-        }
+        // La recompensa ya no valida nada: es un booleano, y un booleano no puede
+        // estar mal escrito.
     }
 
     private fun ReportTheftUiState.toRequest() = ReportTheftRequestDto(
@@ -824,8 +805,6 @@ class ReportTheftViewModel @Inject constructor(
         contactEmail = contactEmail.trim().ifBlank { null },
         contactPublic = contactPublic,
         rewardOffered = rewardOffered,
-        rewardAmount = if (rewardOffered) rewardAmount.trim().replace(',', '.') else null,
-        rewardCurrency = if (rewardOffered) rewardCurrency.apiValue else null,
     )
 
     /**
@@ -856,6 +835,3 @@ class ReportTheftViewModel @Inject constructor(
         )
     }
 }
-
-private fun String.toBigDecimalOrNull(): java.math.BigDecimal? =
-    runCatching { java.math.BigDecimal(this) }.getOrNull()

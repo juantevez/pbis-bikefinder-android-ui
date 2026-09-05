@@ -74,18 +74,21 @@ data class ReportTheftRequestDto(
     /** `@Email`, max 255 */
     val contactEmail: String? = null,
     val contactPublic: Boolean = false,
+    /**
+     * La recompensa es un sí/no.
+     *
+     * El backend **dejó de guardar el monto** en agosto de 2026: el arreglo ocurre
+     * fuera del sistema. Sigue aceptando `rewardAmount` y `rewardCurrency` —son
+     * opcionales— pero no los persiste, así que mandarlos sería mentirle al
+     * usuario sobre algo que el sistema no va a recordar.
+     */
     val rewardOffered: Boolean = false,
-    /** `BigDecimal` >= 0, 10 enteros + 2 decimales. Ver [toBigDecimalAmount]. */
-    val rewardAmount: String? = null,
-    /** ISO 4217: `^[A-Z]{3}$` */
-    val rewardCurrency: String? = null,
 ) {
     companion object {
         const val MAX_TIME_APPROX = 50
         const val MAX_DESCRIPTION = 5000
         const val MAX_CONTACT_PHONE = 50
         const val MAX_CONTACT_EMAIL = 255
-        val CURRENCY_REGEX = Regex("^[A-Z]{3}$")
     }
 }
 
@@ -112,8 +115,6 @@ data class UpdateContactRequestDto(
 @Serializable
 data class UpdateRewardRequestDto(
     val rewardOffered: Boolean = false,
-    val rewardAmount: String? = null,
-    val rewardCurrency: String? = null,
 )
 
 // ── Respuestas ───────────────────────────────────────────────────────────────
@@ -157,6 +158,12 @@ data class ContactDto(
     val isPublic: Boolean = false,
 )
 
+/**
+ * `amount`, `currency` y `formatted` siguen declarados por las denuncias
+ * anteriores a agosto de 2026, que conservan lo que se había cargado. En las
+ * nuevas vienen null: el backend ya no guarda el monto. La UI no los muestra —lo
+ * que se publica es que hay recompensa, nada más—.
+ */
 @Serializable
 data class RewardDto(
     val offered: Boolean = false,
@@ -164,7 +171,6 @@ data class RewardDto(
     @Serializable(with = LenientAmountSerializer::class)
     val amount: String? = null,
     val currency: String? = null,
-    /** Ya formateado por el backend, listo para mostrar. */
     val formatted: String? = null,
 )
 
@@ -267,9 +273,9 @@ data class TipFormBikeDto(
     val year: Int? = null,
 )
 
+/** Ver [RewardDto]: `formatted` sólo llega en denuncias viejas y no se muestra. */
 @Serializable
 data class TipFormRewardDto(
     val offered: Boolean = false,
-    /** Ya formateada por el backend: "ARS 50000". */
     val formatted: String? = null,
 )

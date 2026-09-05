@@ -243,10 +243,13 @@ private fun BikeCard(info: TipFormInfoDto) {
             if (zona.isNotBlank()) Detail(zona)
 
             // La recompensa se muestra si la hay: es lo que puede convertir a
-            // alguien que dudaba en alguien que escribe.
-            info.reward?.takeIf { it.offered }?.let { reward ->
+            // alguien que dudaba en alguien que escribe. Va **sin cifra**: desde
+            // agosto de 2026 el backend no guarda el monto y el arreglo es entre
+            // las dos personas. Mostrar el `formatted` de una denuncia vieja
+            // prometería en nombre de alguien que ya no puede cambiarlo.
+            info.reward?.takeIf { it.offered }?.let {
                 Text(
-                    text = reward.formatted?.let { "Recompensa: $it" } ?: "Ofrece recompensa",
+                    text = "Se ofrece recompensa por información",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.primary,

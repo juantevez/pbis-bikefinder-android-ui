@@ -47,7 +47,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -295,32 +294,12 @@ fun ReportTheftScreen(
                 checked = state.rewardOffered,
                 onCheckedChange = viewModel::setRewardOffered,
                 title = "Ofrezco recompensa",
-                subtitle = "Quien mande una pista va a ver que hay recompensa.",
+                // Sólo se publica que hay recompensa: el monto se dejó de pedir en
+                // agosto de 2026 porque el backend no lo guarda más y el arreglo
+                // ocurre fuera del sistema.
+                subtitle = "Sólo se publica que ofrecés recompensa. El monto lo arreglás " +
+                    "directamente con quien encuentre tu bicicleta.",
             )
-            if (state.rewardOffered) {
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    OutlinedTextField(
-                        value = state.rewardAmount,
-                        onValueChange = viewModel::setRewardAmount,
-                        label = { Text("Monto") },
-                        isError = state.fieldErrors.containsKey("recompensa"),
-                        supportingText = state.fieldErrors["recompensa"]?.let { { Text(it) } },
-                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                            keyboardType = KeyboardType.Decimal,
-                        ),
-                        singleLine = true,
-                        modifier = Modifier.weight(2f),
-                    )
-                    Dropdown(
-                        label = "Moneda",
-                        options = RewardCurrency.entries,
-                        selected = state.rewardCurrency,
-                        optionLabel = { it.label },
-                        onSelect = viewModel::setRewardCurrency,
-                        modifier = Modifier.weight(1.3f),
-                    )
-                }
-            }
 
             state.formError?.let {
                 Text(

@@ -615,7 +615,7 @@ class ReportTheftViewModelTest {
     }
 
     @Test
-    fun `la franja horaria y la moneda viajan con el codigo del front web`() = runTest {
+    fun `la franja horaria viaja con el codigo del front web`() = runTest {
         val api = FakeBicycleApi()
         val sut = viewModel(api)
         sut.start("bici-1")
@@ -623,39 +623,16 @@ class ReportTheftViewModelTest {
 
         sut.selectLocality(1)
         sut.setTimeSlot(TheftTimeSlot.AFTERNOON)
-        sut.setRewardOffered(true)
-        sut.setRewardAmount("5000")
-        sut.setRewardCurrency(RewardCurrency.USD)
         sut.submit()
         advanceUntilIdle()
 
         assertEquals("AFTERNOON", api.lastReport?.theftTimeApprox)
-        assertEquals("USD", api.lastReport?.rewardCurrency)
     }
 
     @Test
-    fun `sin recompensa no viaja monto ni moneda`() = runTest {
-        val api = FakeBicycleApi()
-        val sut = viewModel(api)
-        sut.start("bici-1")
-        advanceUntilIdle()
-
-        sut.selectLocality(1)
-        // El usuario la activa, escribe algo y se arrepiente: los valores no
-        // pueden quedar colgados en el payload.
-        sut.setRewardOffered(true)
-        sut.setRewardAmount("5000")
-        sut.setRewardOffered(false)
-        sut.submit()
-        advanceUntilIdle()
-
-        assertEquals(false, api.lastReport?.rewardOffered)
-        assertNull(api.lastReport?.rewardAmount)
-        assertNull(api.lastReport?.rewardCurrency)
-    }
-
-    @Test
-    fun `una recompensa con monto invalido no se envia`() = runTest {
+    fun `la recompensa viaja como un si o no, sin monto`() = runTest {
+        // El backend dejó de guardar el monto en agosto de 2026: el arreglo ocurre
+        // fuera del sistema y lo único que se publica es que hay recompensa.
         val api = FakeBicycleApi()
         val sut = viewModel(api)
         sut.start("bici-1")
@@ -663,12 +640,12 @@ class ReportTheftViewModelTest {
 
         sut.selectLocality(1)
         sut.setRewardOffered(true)
-        sut.setRewardAmount("mil pesos")
         sut.submit()
         advanceUntilIdle()
 
-        assertNull(api.lastReport)
-        assertNotNull(sut.state.value.fieldErrors["recompensa"])
+        assertEquals(true, api.lastReport?.rewardOffered)
+        // Ya no hay nada que validar: un booleano no puede estar mal escrito.
+        assertNull(sut.state.value.fieldErrors["recompensa"])
     }
 
     @Test
