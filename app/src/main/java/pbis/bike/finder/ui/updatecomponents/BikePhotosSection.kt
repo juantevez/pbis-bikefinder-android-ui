@@ -97,9 +97,9 @@ fun BikePhotosSection(
                 color = MaterialTheme.colorScheme.onSurface,
             )
             Text(
-                text = "Hasta $MAX_FOTOS fotos por bicicleta. Si llegaste al tope, eliminá " +
-                    "una para hacer lugar. Se agregan y se eliminan al toque, sin pasar " +
-                    "por Guardar.",
+                text = "Se agregan y se eliminan al toque: no las guarda el botón de abajo. " +
+                    "Hasta $MAX_FOTOS por bicicleta; si llegaste al tope, eliminá una para " +
+                    "hacer lugar.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 2.dp, bottom = 12.dp),

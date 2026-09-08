@@ -175,6 +175,27 @@ private fun ComponentsForm(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
+        // Las fotos van ARRIBA de las piezas, no debajo.
+        //
+        // Estuvieron un rato del otro lado, calcando a la web, donde la tarjeta
+        // de fotos viene despues del </form>. En una pagina ancha eso se lee; en
+        // un telefono es una columna sola, y el resultado era un "Guardar" en el
+        // medio del scroll con contenido abajo: nadie sabe si ese boton guarda lo
+        // que quedo arriba, lo que sigue, o las dos cosas.
+        //
+        // Con este orden el boton es lo ultimo que hay, que es donde se lo
+        // espera, y la separacion se sostiene por lo que dice cada parte: la
+        // tarjeta de fotos avisa que se guardan solas y el boton dice que guarda
+        // los componentes.
+        BikePhotosSection(
+            state = state,
+            onPhotosPicked = viewModel::onPhotosPicked,
+            onPhotoTypeChanged = viewModel::onPhotoTypeChanged,
+            onGpsConsentChanged = viewModel::onGpsConsentChanged,
+            onDeleteRequested = viewModel::confirmDelete,
+            onRetryLoad = viewModel::loadPhotos,
+        )
+
         BIKE_COMPONENT_FIELDS.forEach { field ->
             ComponentSection(
                 field = field,
@@ -198,7 +219,7 @@ private fun ComponentsForm(
         }
 
         Row(
-            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 24.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             OutlinedButton(
@@ -219,21 +240,12 @@ private fun ComponentsForm(
                         color = MaterialTheme.colorScheme.onPrimary,
                     )
                 }
-                Text(if (state.saving) "Guardando…" else "Guardar")
+                // Dice que guarda los componentes y no un "Guardar" a secas:
+                // arriba hay fotos que se guardaron solas, y el alcance del boton
+                // tiene que leerse sin tener que acordarse de eso.
+                Text(if (state.saving) "Guardando…" else "Guardar componentes")
             }
         }
-
-        // Debajo de Guardar y Cancelar, como en la web: lo que está después de
-        // los botones del formulario no se guarda con el formulario.
-        BikePhotosSection(
-            state = state,
-            onPhotosPicked = viewModel::onPhotosPicked,
-            onPhotoTypeChanged = viewModel::onPhotoTypeChanged,
-            onGpsConsentChanged = viewModel::onGpsConsentChanged,
-            onDeleteRequested = viewModel::confirmDelete,
-            onRetryLoad = viewModel::loadPhotos,
-            modifier = Modifier.padding(bottom = 24.dp),
-        )
     }
 }
 
