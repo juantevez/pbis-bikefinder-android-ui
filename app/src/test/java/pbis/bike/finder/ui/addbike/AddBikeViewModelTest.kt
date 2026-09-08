@@ -3,6 +3,7 @@ package pbis.bike.finder.ui.addbike
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -469,18 +470,60 @@ class AddBikeViewModelTest {
     }
 
     @Test
-    fun `un 409 explica que la serie ya esta tomada`() = runTest {
-        // Es el único error del alta donde el usuario puede hacer algo concreto, y
-        // desde que la serie es obligatoria es el que más se va a ver. El texto del
-        // backend ahí es genérico.
+    fun `un 409 sin explicacion se muestra como serie tomada`() = runTest {
+        // Es el 409 del handler de violación de constraint, que omite el detalle a
+        // propósito porque trae el SQL. En este endpoint ese choque es el índice
+        // único de la serie, así que ponerle palabras es agregar información.
+        val sut = altaCon409("""{"title":"Conflict","status":409,"detail":"La operacion choca con un registro existente"}""")
+
+        assertNull(sut.state.value.createdBikeId)
+        assertTrue(sut.state.value.formError!!.contains("ya está registrado"))
+    }
+
+    @Test
+    fun `un 409 sin cuerpo tambien cae en el texto de la serie`() = runTest {
+        val sut = altaCon409("")
+
+        assertTrue(sut.state.value.formError!!.contains("ya está registrado"))
+    }
+
+    @Test
+    fun `el tope de bicicletas no se muestra como un problema de la serie`() = runTest {
+        // Este endpoint devuelve 409 por dos motivos distintos. Traducir el status
+        // entero a "esa serie ya existe" mandaba al usuario a corregir un número
+        // que no tenía nada de malo: pasó el 08/09/2026 contra el backend real.
+        val sut = altaCon409(
+            """{"title":"Invalid Operation","status":409,"detail":"Solo se pueden tener 3 bicicletas registradas. Para registrar otra hay que dar de baja alguna de las actuales."}""",
+        )
+
+        assertNull(sut.state.value.createdBikeId)
+        assertEquals(
+            "Solo se pueden tener 3 bicicletas registradas.",
+            sut.state.value.formError,
+        )
+    }
+
+    @Test
+    fun `la serie duplicada la explica el backend, que sabe cual es`() = runTest {
+        val sut = altaCon409(
+            """{"title":"Invalid Operation","status":409,"detail":"Ya existe una bicicleta registrada con el numero de serie $SERIE"}""",
+        )
+
+        assertEquals(
+            "Ya existe una bicicleta registrada con el numero de serie $SERIE",
+            sut.state.value.formError,
+        )
+    }
+
+    /** Un alta de catálogo completa que termina en el 409 que se le pase. */
+    private suspend fun TestScope.altaCon409(cuerpo: String): AddBikeViewModel {
         val api = object : FakeBicycleApi() {
             override suspend fun registerFromCatalog(
                 body: RegisterFromCatalogRequestDto,
             ): BicycleDto = throw HttpException(
                 Response.error<BicycleDto>(
                     409,
-                    """{"error":"Conflict","message":"Duplicate serial"}"""
-                        .toResponseBody("application/json".toMediaType()),
+                    cuerpo.toResponseBody("application/problem+json".toMediaType()),
                 )
             )
         }.apply {
@@ -499,8 +542,7 @@ class AddBikeViewModelTest {
         sut.submit()
         advanceUntilIdle()
 
-        assertNull(sut.state.value.createdBikeId)
-        assertTrue(sut.state.value.formError!!.contains("ya está registrado"))
+        return sut
     }
 
     /** URI de mentira: [PendingPhoto] la guarda como texto justamente para esto. */

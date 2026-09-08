@@ -421,18 +421,45 @@ class AddBikeViewModel @Inject constructor(
     /**
      * Qué mostrarle al usuario cuando el alta no entra.
      *
-     * El 409 se traduce aparte porque es el único caso donde hay algo concreto que
-     * hacer: el número de serie ya está tomado por otra bici vigente. El texto del
-     * backend ahí es genérico, y desde que la serie es obligatoria es el error que
-     * más se va a ver.
+     * **El mensaje del backend gana también en el 409.** Este endpoint devuelve
+     * ese status por dos motivos distintos —la serie ya tomada y el tope de
+     * bicicletas por usuario—, y traducir el status entero a "esa serie ya
+     * existe" hacía que el tope se mostrara como un problema de la serie: el
+     * usuario cambiaba el número una y otra vez contra un error que no hablaba
+     * de eso. Pasó el 08/09/2026, con el backend contestando "Solo se pueden
+     * tener 3 bicicletas registradas".
+     *
+     * El texto propio queda sólo para el 409 que no explica nada: sin cuerpo, o
+     * con el genérico del handler de violación de constraint, que en este
+     * endpoint es el índice único de la serie —ver
+     * `RegistrationGlobalExceptionHandler.handleDataIntegrityViolation`, que
+     * omite el detalle a propósito porque trae el SQL—. Ahí decirlo con nuestras
+     * palabras es agregar información, no taparla.
      */
-    private fun mensajeDeError(result: ApiResult<*>): String =
-        if (result is ApiResult.HttpError && result.code == 409) {
+    private fun mensajeDeError(result: ApiResult<*>): String {
+        if (result !is ApiResult.HttpError || result.code != 409) {
+            return result.toUserMessage("No se pudo registrar la bicicleta.")
+        }
+
+        val delBackend = result.userMessage
+        return if (delBackend == null || delBackend.esConflictoSinExplicar()) {
             "Ese número de serie ya está registrado en otra bicicleta activa. " +
                 "Revisá que lo hayas copiado bien."
         } else {
-            result.toUserMessage("No se pudo registrar la bicicleta.")
+            delBackend
         }
+    }
+
+    /**
+     * El 409 genérico del handler de constraints, que no dice qué chocó.
+     *
+     * Se compara contra el texto porque es lo único que llega: el
+     * `ProblemDetail` de ese handler no trae código ni discriminador. Si el
+     * backend algún día lo cambia, lo peor que pasa es que ese mensaje se
+     * muestre tal cual, que es el comportamiento por defecto y no una regresión.
+     */
+    private fun String.esConflictoSinExplicar(): Boolean =
+        contains("choca con un registro existente", ignoreCase = true)
 
     /**
      * Sube las fotos de una bici ya creada.
