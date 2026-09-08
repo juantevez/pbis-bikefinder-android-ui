@@ -13,15 +13,19 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -41,6 +45,16 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import pbis.bike.finder.data.remote.dto.PhotoType
 import pbis.bike.finder.data.repository.PendingPhoto
+
+/**
+ * Lado de la miniatura, y también ancho de la columna que la contiene.
+ *
+ * Es un solo valor a propósito: con la imagen en 96dp dentro de una columna de
+ * 120dp, la etiqueta quedaba centrada sobre 120 y la foto arrancaba a la
+ * izquierda, así que cada tipo se leía corrido respecto de la foto que
+ * describía.
+ */
+private val THUMB = 112.dp
 
 /**
  * Selección de fotos y consentimiento de análisis GPS.
@@ -175,14 +189,14 @@ private fun PhotoThumbnail(
     onRemove: () -> Unit,
     onTypeChanged: (PhotoType) -> Unit,
 ) {
-    Column(Modifier.width(120.dp)) {
+    Column(Modifier.width(THUMB)) {
         Box {
             AsyncImage(
                 model = photo.uri,
                 contentDescription = "Foto de la bicicleta",
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
-                    .size(96.dp)
+                    .size(THUMB)
                     .clip(RoundedCornerShape(8.dp)),
             )
 
@@ -201,10 +215,20 @@ private fun PhotoThumbnail(
                 }
             }
 
-            TextButton(
-                onClick = onRemove,
+            // El fondo no es decorativo: el texto solo, dorado y sin nada detrás,
+            // se perdía contra la foto —ilegible sobre un cuadro rojo, invisible
+            // sobre uno claro—. Es el mismo recurso que usa el badge "Principal".
+            Surface(
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
+                shape = RoundedCornerShape(topStart = 8.dp, bottomEnd = 8.dp),
                 modifier = Modifier.align(Alignment.BottomEnd),
-            ) { Text("Quitar", style = MaterialTheme.typography.labelSmall) }
+            ) {
+                TextButton(
+                    onClick = onRemove,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    modifier = Modifier.heightIn(min = 0.dp),
+                ) { Text("Quitar", style = MaterialTheme.typography.labelSmall) }
+            }
         }
 
         PhotoTypeChip(selected = photo.photoType, onSelected = onTypeChanged)
@@ -215,7 +239,7 @@ private fun PhotoThumbnail(
  * El tipo de una foto, como texto apretado que despliega la lista.
  *
  * No es un `OutlinedTextField` de sólo lectura como el de la pantalla de
- * componentes: acá va debajo de una miniatura de 120dp y un campo con borde y
+ * componentes: acá va debajo de una miniatura de [THUMB] y un campo con borde y
  * etiqueta no entra sin comerse el espacio de la foto.
  */
 @Composable
@@ -233,6 +257,15 @@ private fun PhotoTypeChip(selected: PhotoType, onSelected: (PhotoType) -> Unit) 
                 style = MaterialTheme.typography.labelSmall,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            // La flecha es lo único que dice que esto se toca. Sin ella el tipo se
+            // lee como una etiqueta más y nadie lo abre: el control queda tan
+            // muerto como cuando directamente no existía.
+            Icon(
+                imageVector = Icons.Filled.ArrowDropDown,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
             )
         }
 
