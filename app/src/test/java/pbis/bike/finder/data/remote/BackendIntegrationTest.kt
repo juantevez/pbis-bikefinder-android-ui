@@ -351,16 +351,31 @@ class BackendIntegrationTest {
 
         assertTrue(creada.id.isNotBlank())
 
-        // El detalle usa OTRO modelo que el listado: marca y modelo anidados en
-        // `frame`. Si los dos deserializan, las dos formas están bien.
-        pace()
-        val detalle = api.detail(creada.id)
-        assertNotNull(detalle.frame)
+        try {
+            // El detalle usa OTRO modelo que el listado: marca y modelo anidados en
+            // `frame`. Si los dos deserializan, las dos formas están bien.
+            pace()
+            val detalle = api.detail(creada.id)
+            assertNotNull(detalle.frame)
 
-        pace()
-        val despues = api.list()
-        assertEquals(antes + 1, despues.total)
-        assertTrue(despues.bicycles.any { it.id == creada.id })
+            pace()
+            val despues = api.list()
+            assertEquals(antes + 1, despues.total)
+            assertTrue(despues.bicycles.any { it.id == creada.id })
+        } finally {
+            // La bici de prueba se da de baja SIEMPRE, también si una assertion
+            // falló. Hay un tope de bicicletas vigentes por usuario —hoy 3— y este
+            // test crea una por corrida: sin la limpieza, a la tercera el alta
+            // empieza a devolver 409 y el test queda rojo para siempre, con un
+            // mensaje que habla del cupo y no de lo que el test prueba. Pasó el
+            // 08/09/2026.
+            //
+            // El DELETE es un deactivate: la bici queda INACTIVE, que no cuenta
+            // para el tope. No se verifica ni se deja fallar la limpieza, porque
+            // un problema borrando no es el resultado de este test.
+            pace()
+            runCatching { api.delete(creada.id) }
+        }
     }
 
     @Test
