@@ -157,15 +157,42 @@ fun BikeDetailScreen(
 
     state.lightbox?.let { photo ->
         Dialog(onDismissRequest = viewModel::closeLightbox) {
-            AsyncImage(
-                model = photo.url,
-                contentDescription = photo.description ?: "Foto de la bicicleta",
-                contentScale = ContentScale.Fit,
+            // La miniatura queda abajo, estirada, mientras baja el original, que
+            // tarda ~0,3s contra los ~0,02s de ella: sin nada debajo el lightbox
+            // abre en blanco justo despues de un tap, y parece que no respondio.
+            // Es lo que hace ver-bici.js, que abre con el blob que ya tiene de la
+            // grilla y lo reemplaza al terminar.
+            //
+            // La foto sin miniatura no dibuja la capa de abajo: sus dos URLs son
+            // la misma, asi que seria pedir dos veces lo mismo para pintarlo
+            // identico a lo de arriba.
+            //
+            // El tap cierra desde el Box y no desde la imagen de arriba, que
+            // mientras carga no ocupa lugar: colgado de ella, cerrar no andaria
+            // hasta que la foto llegue, que es justo cuando el usuario todavia
+            // esta esperando y quiere salir.
+            Box(
+                contentAlignment = Alignment.Center,
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp))
                     .clickable(onClick = viewModel::closeLightbox),
-            )
+            ) {
+                if (photo.miniaturaUrl != photo.url) {
+                    AsyncImage(
+                        model = photo.miniaturaUrl,
+                        contentDescription = null,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                AsyncImage(
+                    model = photo.url,
+                    contentDescription = photo.description ?: "Foto de la bicicleta",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
         }
     }
 }
