@@ -64,6 +64,7 @@ abstract class StubBicycleApi : BicycleApi {
         gpsAnalysisConsent: RequestBody,
     ): PhotoUploadResponseDto = notUsed()
 
+    override suspend fun deletePhoto(id: String): Response<Unit> = notUsed()
     override suspend fun reportTheft(id: String, body: ReportTheftRequestDto): TheftReportDto =
         notUsed()
 

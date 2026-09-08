@@ -77,6 +77,16 @@ interface BicycleApi {
         @Part("gpsAnalysisConsent") gpsAnalysisConsent: okhttp3.RequestBody,
     ): PhotoUploadResponseDto
 
+    /**
+     * Borra una foto. El id es el de la foto, no el de la bici: la ruta cuelga
+     * de media-service y no de la bicicleta.
+     *
+     * Es permanente y no hay papelera del otro lado, así que quien lo llame
+     * tiene que confirmar antes. No devuelve cuerpo.
+     */
+    @DELETE("api/v1/photos/{id}")
+    suspend fun deletePhoto(@Path("id") id: String): Response<Unit>
+
     @POST("api/v1/bicycles/{id}/report-theft")
     suspend fun reportTheft(
         @Path("id") id: String,

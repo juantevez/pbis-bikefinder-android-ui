@@ -39,6 +39,7 @@ import pbis.bike.finder.data.repository.BicycleRepository
 import pbis.bike.finder.data.repository.CatalogRepository
 import pbis.bike.finder.data.repository.PendingPhoto
 import pbis.bike.finder.data.repository.PhotoUploadOutcome
+import pbis.bike.finder.data.repository.PhotoUploadResult
 import pbis.bike.finder.data.repository.PhotoUploader
 import retrofit2.HttpException
 import retrofit2.Response
@@ -118,6 +119,7 @@ class AddBikeViewModelTest {
             body: UpdateComponentsRequestDto,
         ): Response<Unit> = notUsed()
 
+        override suspend fun deletePhoto(id: String): Response<Unit> = notUsed()
         override suspend fun photos(id: String): PhotoListResponseDto = notUsed()
         override suspend fun uploadPhoto(
             id: String,
@@ -151,6 +153,13 @@ class AddBikeViewModelTest {
             lastPhotos = photos
             return outcome
         }
+
+        /** El alta sube en tanda; la de a una es de la pantalla de componentes. */
+        override suspend fun uploadOne(
+            bicycleId: String,
+            photo: PendingPhoto,
+            gpsAnalysisConsent: Boolean,
+        ): PhotoUploadResult = throw UnsupportedOperationException()
     }
 
     private fun viewModel(

@@ -84,6 +84,14 @@ class BicycleRepository @Inject constructor(
         }
 
     /**
+     * Borra una foto, para siempre.
+     *
+     * No devuelve cuerpo: ver [orThrow].
+     */
+    suspend fun deletePhoto(photoId: String): ApiResult<Unit> =
+        apiCall(json) { api.deletePhoto(photoId).orThrow() }
+
+    /**
      * Reemplaza el mapa de componentes.
      *
      * El `components` que llega ya viene con la metadata de procedencia

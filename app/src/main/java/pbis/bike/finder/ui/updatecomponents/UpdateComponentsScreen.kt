@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -70,6 +71,41 @@ fun UpdateComponentsScreen(
         snackbarHostState.showSnackbar("Componentes actualizados")
         viewModel.onSavedHandled()
         onSaved()
+    }
+
+    // Las fotos avisan por snackbar y no por un cartel fijo: son acciones sueltas
+    // que ya se ven reflejadas en la grilla, y un error de foto no tiene por qué
+    // ocupar lugar arriba del formulario, que es otra cosa.
+    LaunchedEffect(state.photoMessage) {
+        val message = state.photoMessage ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(message)
+        viewModel.onPhotoMessageShown()
+    }
+
+    state.confirmingDelete?.let { photo ->
+        AlertDialog(
+            onDismissRequest = viewModel::dismissDelete,
+            title = { Text("¿Eliminar esta foto?") },
+            text = {
+                Text(
+                    // Que sea la principal se avisa aparte: es la que se ve en el
+                    // listado y en la denuncia, así que borrarla cambia algo más
+                    // que el contenido de esta grilla.
+                    if (photo.isPrimary) {
+                        "Es la foto principal de la bicicleta. Se elimina de forma " +
+                            "permanente y no se puede deshacer."
+                    } else {
+                        "Se elimina de forma permanente y no se puede deshacer."
+                    },
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = viewModel::deleteConfirmedPhoto) { Text("Eliminar") }
+            },
+            dismissButton = {
+                TextButton(onClick = viewModel::dismissDelete) { Text("Cancelar") }
+            },
+        )
     }
 
     Scaffold(
@@ -162,7 +198,7 @@ private fun ComponentsForm(
         }
 
         Row(
-            modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 24.dp),
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             OutlinedButton(
@@ -186,6 +222,18 @@ private fun ComponentsForm(
                 Text(if (state.saving) "Guardando…" else "Guardar")
             }
         }
+
+        // Debajo de Guardar y Cancelar, como en la web: lo que está después de
+        // los botones del formulario no se guarda con el formulario.
+        BikePhotosSection(
+            state = state,
+            onPhotosPicked = viewModel::onPhotosPicked,
+            onPhotoTypeChanged = viewModel::onPhotoTypeChanged,
+            onGpsConsentChanged = viewModel::onGpsConsentChanged,
+            onDeleteRequested = viewModel::confirmDelete,
+            onRetryLoad = viewModel::loadPhotos,
+            modifier = Modifier.padding(bottom = 24.dp),
+        )
     }
 }
 

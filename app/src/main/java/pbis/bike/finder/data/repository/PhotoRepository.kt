@@ -72,19 +72,39 @@ class PhotoRepository @Inject constructor(
             async { gate.withPermit { upload(bicycleId, photo, gpsAnalysisConsent) } }
         }.map { it.await() }
 
+        // En el alta el reparto es binario a propósito: la pantalla siguiente
+        // dice "quedó registrada, tantas fotos no entraron" y no hay lista donde
+        // mirar. La distinción entre rechazada e incierta la aprovecha
+        // [uploadOne], que sí la puede mostrar contra la grilla ya refrescada.
         PhotoUploadOutcome(
-            uploaded = results.count { it },
-            failed = results.count { !it },
+            uploaded = results.count { it == PhotoUploadResult.OK },
+            failed = results.count { it != PhotoUploadResult.OK },
         )
     }
+
+    /**
+     * Una foto sobre una bici que ya existe — la sección de fotos de
+     * "Actualizar componentes".
+     *
+     * No pasa por [uploadAll] con una lista de uno: quien agrega fotos ahí las
+     * sube **de a una y en serie**, y eso lo decide el llamador. Acá lo único
+     * distinto es que el resultado llega entero.
+     */
+    override suspend fun uploadOne(
+        bicycleId: String,
+        photo: PendingPhoto,
+        gpsAnalysisConsent: Boolean,
+    ): PhotoUploadResult = upload(bicycleId, photo, gpsAnalysisConsent)
 
     private suspend fun upload(
         bicycleId: String,
         photo: PendingPhoto,
         gpsAnalysisConsent: Boolean,
-    ): Boolean {
+    ): PhotoUploadResult {
         val uri = photo.uri.toUri()
-        val original = readBytes(uri, gpsAnalysisConsent) ?: return false
+        // No se pudo ni abrir el archivo: nunca salió nada para el servidor, así
+        // que es un rechazo y no una duda.
+        val original = readBytes(uri, gpsAnalysisConsent) ?: return PhotoUploadResult.RECHAZADA
         val mimeOriginal = context.contentResolver.getType(uri) ?: "image/jpeg"
 
         // Reescalado recién acá y no al elegir la foto: la vista previa sale del
@@ -113,7 +133,15 @@ class PhotoRepository @Inject constructor(
             )
         }
 
-        return result is ApiResult.Success
+        return when (result) {
+            is ApiResult.Success -> PhotoUploadResult.OK
+            is ApiResult.HttpError -> PhotoUploadResult.RECHAZADA
+            // Un cuerpo que no se pudo interpretar llega **después** de un 2xx:
+            // la foto está guardada y lo que se rompió es el contrato. Tratarlo
+            // como fallo invita a reintentar y duplicar.
+            is ApiResult.Malformed -> PhotoUploadResult.INCIERTA
+            is ApiResult.NoNetwork -> PhotoUploadResult.INCIERTA
+        }
     }
 
     /**
