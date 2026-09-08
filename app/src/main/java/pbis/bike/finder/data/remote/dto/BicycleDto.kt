@@ -208,6 +208,21 @@ data class PhotoListResponseDto(
     val total: Int = 0,
 )
 
+/**
+ * Cambio de metadata de una foto ya subida.
+ *
+ * Los dos campos son opcionales y **null significa "no toques esto"**: el
+ * backend los aplica bajo un `if (!= null)`. Con `explicitNulls = false` un null
+ * ni siquiera viaja, así que para **borrar** la descripción hay que mandar una
+ * cadena vacía, no null. Es la misma regla que la corrección de denuncias.
+ */
+@Serializable
+data class UpdatePhotoRequestDto(
+    val photoType: PhotoType? = null,
+    /** Tope del backend: 2000 caracteres. */
+    val description: String? = null,
+)
+
 @Serializable
 data class PhotoDto(
     val id: String,

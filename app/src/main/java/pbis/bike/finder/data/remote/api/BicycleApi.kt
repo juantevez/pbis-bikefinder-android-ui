@@ -14,6 +14,7 @@ import pbis.bike.finder.data.remote.dto.RegisterManuallyRequestDto
 import pbis.bike.finder.data.remote.dto.ReportTheftRequestDto
 import pbis.bike.finder.data.remote.dto.TheftReportDto
 import pbis.bike.finder.data.remote.dto.UpdateComponentsRequestDto
+import pbis.bike.finder.data.remote.dto.UpdatePhotoRequestDto
 import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.DELETE
@@ -76,6 +77,19 @@ interface BicycleApi {
         @Part("setAsPrimary") setAsPrimary: okhttp3.RequestBody,
         @Part("gpsAnalysisConsent") gpsAnalysisConsent: okhttp3.RequestBody,
     ): PhotoUploadResponseDto
+
+    /**
+     * Cambia el tipo y/o la descripción de una foto ya subida.
+     *
+     * No devuelve nada que la app use: después de esto se repide la lista, que es
+     * lo único que dice cómo quedó. Ver [UpdatePhotoRequestDto] para la
+     * semántica de los nulos.
+     */
+    @PATCH("api/v1/photos/{id}")
+    suspend fun updatePhoto(
+        @Path("id") id: String,
+        @Body body: UpdatePhotoRequestDto,
+    ): Response<Unit>
 
     /**
      * Borra una foto. El id es el de la foto, no el de la bici: la ruta cuelga

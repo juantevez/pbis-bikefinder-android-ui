@@ -13,6 +13,7 @@ import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -21,6 +22,7 @@ import pbis.bike.finder.data.remote.dto.BicycleDto
 import pbis.bike.finder.data.remote.dto.PhotoDto
 import pbis.bike.finder.data.remote.dto.PhotoListResponseDto
 import pbis.bike.finder.data.remote.dto.PhotoType
+import pbis.bike.finder.data.remote.dto.UpdatePhotoRequestDto
 import pbis.bike.finder.data.repository.BicycleRepository
 import pbis.bike.finder.data.repository.CatalogRepository
 import pbis.bike.finder.data.repository.PendingPhoto
@@ -194,13 +196,126 @@ class BikePhotosTest {
         assertEquals(listOf("1"), vm.state.value.photos.map { it.id })
     }
 
+    // ── Corregir qué muestra una foto ────────────────────────────────────────
+
+    @Test
+    fun `guardar la correccion manda el tipo y la aclaracion`() = runTest(dispatcher) {
+        val api = FakeApi(fotos = listOf(foto("1")))
+        val vm = viewModel(api, FakeUploader())
+        vm.start("bici-1")
+        advanceUntilIdle()
+
+        vm.startEditPhoto(vm.state.value.photos.single())
+        vm.onEditTypeChanged(PhotoType.DAMAGE)
+        vm.onEditDescriptionChanged("rayón en el guardabarros")
+        vm.saveEditPhoto()
+        advanceUntilIdle()
+
+        assertEquals(PhotoType.DAMAGE, api.parcheado?.photoType)
+        assertEquals("rayón en el guardabarros", api.parcheado?.description)
+        assertNull(vm.state.value.editing)
+    }
+
+    @Test
+    fun `borrar la aclaracion viaja como cadena vacia, no como null`() = runTest(dispatcher) {
+        // Con explicitNulls = false un null ni siquiera viaja, y el backend
+        // aplica cada campo bajo un if (!= null): null es "no la toques". La
+        // unica forma de borrar la que habia es mandar vacio.
+        val api = FakeApi(fotos = listOf(foto("1", descripcion = "algo viejo")))
+        val vm = viewModel(api, FakeUploader())
+        vm.start("bici-1")
+        advanceUntilIdle()
+
+        vm.startEditPhoto(vm.state.value.photos.single())
+        vm.onEditDescriptionChanged("   ")
+        vm.saveEditPhoto()
+        advanceUntilIdle()
+
+        assertEquals("", api.parcheado?.description)
+    }
+
+    @Test
+    fun `sin cambios no se manda nada`() = runTest(dispatcher) {
+        val api = FakeApi(fotos = listOf(foto("1")))
+        val vm = viewModel(api, FakeUploader())
+        vm.start("bici-1")
+        advanceUntilIdle()
+
+        vm.startEditPhoto(vm.state.value.photos.single())
+        vm.saveEditPhoto()
+        advanceUntilIdle()
+
+        // Un PATCH que no cambia nada gasta una request y deja un "Foto
+        // actualizada" sobre algo que no ocurrio.
+        assertNull(api.parcheado)
+        assertNull(vm.state.value.editing)
+        assertNull(vm.state.value.photoMessage)
+    }
+
+    @Test
+    fun `la aclaracion se corta en el tope del backend`() = runTest(dispatcher) {
+        val api = FakeApi(fotos = listOf(foto("1")))
+        val vm = viewModel(api, FakeUploader())
+        vm.start("bici-1")
+        advanceUntilIdle()
+
+        vm.startEditPhoto(vm.state.value.photos.single())
+        vm.onEditDescriptionChanged("x".repeat(2500))
+
+        // Cortar al escribir y no al guardar: perder lo tipeado por un 400 de un
+        // tope que nadie anuncio es peor que no dejar escribir de mas.
+        assertEquals(2000, vm.state.value.editing!!.description.length)
+    }
+
+    @Test
+    fun `un error al guardar deja el dialogo abierto con lo escrito`() = runTest(dispatcher) {
+        val api = FakeApi(fotos = listOf(foto("1")), parche = { error409() })
+        val vm = viewModel(api, FakeUploader())
+        vm.start("bici-1")
+        advanceUntilIdle()
+
+        vm.startEditPhoto(vm.state.value.photos.single())
+        vm.onEditDescriptionChanged("no la pierdas")
+        vm.saveEditPhoto()
+        advanceUntilIdle()
+
+        val edit = vm.state.value.editing!!
+        assertEquals("no la pierdas", edit.description)
+        assertFalse(edit.saving)
+        assertNotNull(edit.error)
+    }
+
+    @Test
+    fun `la etiqueta prefiere la aclaracion sobre el tipo`() = runTest(dispatcher) {
+        val api = FakeApi(
+            fotos = listOf(foto("1", descripcion = "rayón"), foto("2")),
+        )
+        val vm = viewModel(api, FakeUploader())
+        vm.start("bici-1")
+        advanceUntilIdle()
+
+        val etiquetas = vm.state.value.photos.map { it.etiqueta }
+        assertEquals(listOf("rayón", PhotoType.GENERAL.displayName), etiquetas)
+    }
+
     // ── Dobles ───────────────────────────────────────────────────────────────
 
     private class FakeApi(
         var fotos: List<PhotoDto>,
         private val borrado: () -> Response<Unit> = { Response.success(Unit) },
+        private val parche: () -> Response<Unit> = { Response.success(Unit) },
     ) : StubBicycleApi() {
         val borradas = mutableListOf<String>()
+        var parcheado: UpdatePhotoRequestDto? = null
+
+        override suspend fun updatePhoto(
+            id: String,
+            body: UpdatePhotoRequestDto,
+        ): Response<Unit> {
+            val respuesta = parche()
+            if (respuesta.isSuccessful) parcheado = body
+            return respuesta
+        }
 
         override suspend fun detail(id: String): BicycleDto = BicycleDto(id = id)
 
@@ -243,7 +358,8 @@ class BikePhotosTest {
         photoUploader = uploader,
     )
 
-    private fun foto(id: String) = PhotoDto(id = id, downloadUrl = "images/$id.jpg")
+    private fun foto(id: String, descripcion: String? = null) =
+        PhotoDto(id = id, downloadUrl = "images/$id.jpg", description = descripcion)
 
     private fun error409(): Response<Unit> = Response.error(
         409,

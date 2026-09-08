@@ -82,6 +82,16 @@ fun UpdateComponentsScreen(
         viewModel.onPhotoMessageShown()
     }
 
+    state.editing?.let { edit ->
+        EditPhotoDialog(
+            edit = edit,
+            onTypeChanged = viewModel::onEditTypeChanged,
+            onDescriptionChanged = viewModel::onEditDescriptionChanged,
+            onConfirm = viewModel::saveEditPhoto,
+            onDismiss = viewModel::dismissEditPhoto,
+        )
+    }
+
     state.confirmingDelete?.let { photo ->
         AlertDialog(
             onDismissRequest = viewModel::dismissDelete,
@@ -193,6 +203,7 @@ private fun ComponentsForm(
             onPhotoTypeChanged = viewModel::onPhotoTypeChanged,
             onGpsConsentChanged = viewModel::onGpsConsentChanged,
             onDeleteRequested = viewModel::confirmDelete,
+            onEditRequested = viewModel::startEditPhoto,
             onRetryLoad = viewModel::loadPhotos,
         )
 

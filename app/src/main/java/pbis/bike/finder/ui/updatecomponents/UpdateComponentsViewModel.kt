@@ -59,6 +59,8 @@ data class UpdateComponentsUiState(
     val photoMessage: String? = null,
     /** La foto que el usuario pidió borrar y todavía no confirmó. */
     val confirmingDelete: BikePhotoItem? = null,
+    /** La foto que se está editando, con lo tipeado hasta ahora. */
+    val editing: PhotoEdit? = null,
 ) {
     fun entry(key: String): ComponentEntry = entries[key] ?: ComponentEntry()
 
@@ -77,7 +79,37 @@ data class BikePhotoItem(
     val miniaturaUrl: String,
     val isPrimary: Boolean,
     val fileName: String?,
-)
+    /** Qué muestra la foto. Lo eligió quien la subió y se puede corregir. */
+    val photoType: PhotoType,
+    /** Aclaración escrita, si alguien se tomó el trabajo. */
+    val description: String?,
+) {
+    /** Lo que se lee debajo de la miniatura: la aclaración si la hay, si no el tipo. */
+    val etiqueta: String get() = description?.takeIf { it.isNotBlank() } ?: photoType.displayName
+}
+
+/**
+ * Una edición de metadata en curso.
+ *
+ * Vive aparte de la foto porque son cosas distintas: [BikePhotoItem] es lo que
+ * el backend dice que hay, y esto es lo que el usuario está escribiendo y
+ * todavía no mandó. Mezclarlas haría que la grilla mostrara cambios que no se
+ * guardaron.
+ */
+data class PhotoEdit(
+    val photo: BikePhotoItem,
+    val photoType: PhotoType,
+    val description: String,
+    val saving: Boolean = false,
+    val error: String? = null,
+) {
+    val cambio: Boolean
+        get() = photoType != photo.photoType ||
+            description.trim() != (photo.description ?: "").trim()
+}
+
+/** Tope del backend para la descripción (`@Size(max = 2000)`). */
+private const val MAX_DESCRIPCION = 2000
 
 /**
  * Techo de fotos por bici.
@@ -283,6 +315,10 @@ class UpdateComponentsViewModel @Inject constructor(
                                 miniaturaUrl = photoDownloadUrl(key),
                                 isPrimary = photo.isPrimary,
                                 fileName = photo.fileName,
+                                // Las fotos viejas no declaran tipo: se muestran
+                                // como generales, que es lo que el backend asume.
+                                photoType = photo.photoType ?: PhotoType.GENERAL,
+                                description = photo.description,
                             )
                         },
                     )
@@ -371,6 +407,81 @@ class UpdateComponentsViewModel @Inject constructor(
             // La lista la manda el backend, no la aritmética del cliente: es lo
             // único que dice qué quedó realmente cuando una subida se cortó.
             loadPhotos()
+        }
+    }
+
+    // ── Editar qué muestra una foto ──────────────────────────────────────────
+    //
+    // El tipo se elige al subir, y hasta acá era para siempre: una foto mal
+    // clasificada --o subida antes de que la app dejara elegir-- se quedaba
+    // así. El PATCH de media-service acepta las dos cosas desde siempre y no lo
+    // usaba ningún cliente.
+
+    fun startEditPhoto(photo: BikePhotoItem) = _state.update {
+        it.copy(
+            editing = PhotoEdit(
+                photo = photo,
+                photoType = photo.photoType,
+                description = photo.description.orEmpty(),
+            ),
+        )
+    }
+
+    fun dismissEditPhoto() = _state.update { it.copy(editing = null) }
+
+    fun onEditTypeChanged(type: PhotoType) = _state.update { current ->
+        current.copy(editing = current.editing?.copy(photoType = type, error = null))
+    }
+
+    fun onEditDescriptionChanged(text: String) = _state.update { current ->
+        current.copy(
+            editing = current.editing?.copy(
+                // Se corta acá y no al guardar: el backend rechaza el largo con un
+                // 400 y perder lo escrito por pasarse de un tope que nadie anunció
+                // es peor que no dejar escribir de más.
+                description = text.take(MAX_DESCRIPCION),
+                error = null,
+            ),
+        )
+    }
+
+    fun saveEditPhoto() {
+        val edit = _state.value.editing ?: return
+        if (edit.saving) return
+
+        // Sin cambios no se manda nada: un PATCH que no cambia nada igual gasta
+        // una request y deja el "Foto actualizada" de un cambio que no ocurrió.
+        if (!edit.cambio) {
+            _state.update { it.copy(editing = null) }
+            return
+        }
+
+        _state.update { it.copy(editing = edit.copy(saving = true, error = null)) }
+
+        viewModelScope.launch {
+            val result = bicycleRepository.updatePhoto(
+                photoId = edit.photo.id,
+                photoType = edit.photoType,
+                // Vacío viaja como cadena vacía, que es lo que borra una
+                // descripción anterior; null sería "no la toques".
+                description = edit.description.trim(),
+            )
+
+            when (result) {
+                is ApiResult.Success -> {
+                    _state.update { it.copy(editing = null, photoMessage = "Foto actualizada") }
+                    loadPhotos()
+                }
+
+                else -> _state.update { current ->
+                    current.copy(
+                        editing = current.editing?.copy(
+                            saving = false,
+                            error = result.toUserMessage("No se pudo actualizar la foto."),
+                        ),
+                    )
+                }
+            }
         }
     }
 

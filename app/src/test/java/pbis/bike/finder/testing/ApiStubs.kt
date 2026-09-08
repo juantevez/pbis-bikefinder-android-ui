@@ -27,6 +27,7 @@ import pbis.bike.finder.data.remote.dto.TipStatsDto
 import pbis.bike.finder.data.remote.dto.UnreadTipsCountDto
 import pbis.bike.finder.data.remote.dto.UpdateComponentsRequestDto
 import pbis.bike.finder.data.remote.dto.UpdateContactRequestDto
+import pbis.bike.finder.data.remote.dto.UpdatePhotoRequestDto
 import pbis.bike.finder.data.remote.dto.UpdateRewardRequestDto
 import pbis.bike.finder.data.remote.dto.UpdateTheftDetailsRequestDto
 import retrofit2.Response
@@ -63,6 +64,9 @@ abstract class StubBicycleApi : BicycleApi {
         setAsPrimary: RequestBody,
         gpsAnalysisConsent: RequestBody,
     ): PhotoUploadResponseDto = notUsed()
+
+    override suspend fun updatePhoto(id: String, body: UpdatePhotoRequestDto): Response<Unit> =
+        notUsed()
 
     override suspend fun deletePhoto(id: String): Response<Unit> = notUsed()
     override suspend fun reportTheft(id: String, body: ReportTheftRequestDto): TheftReportDto =

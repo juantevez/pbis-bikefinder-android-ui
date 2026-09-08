@@ -9,27 +9,37 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import pbis.bike.finder.data.remote.dto.PhotoType
 import pbis.bike.finder.data.repository.PendingPhoto
 
 /**
@@ -46,6 +56,7 @@ fun PhotoSection(
     gpsConsent: Boolean,
     onPhotosPicked: (List<String>) -> Unit,
     onPhotoRemoved: (String) -> Unit,
+    onPhotoTypeChanged: (String, PhotoType) -> Unit,
     onGpsConsentChanged: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -88,11 +99,14 @@ fun PhotoSection(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(104.dp)
                     .padding(bottom = 8.dp),
             ) {
                 items(photos, key = { it.uri }) { photo ->
-                    PhotoThumbnail(photo = photo, onRemove = { onPhotoRemoved(photo.uri) })
+                    PhotoThumbnail(
+                        photo = photo,
+                        onRemove = { onPhotoRemoved(photo.uri) },
+                        onTypeChanged = { onPhotoTypeChanged(photo.uri, it) },
+                    )
                 }
             }
         }
@@ -145,37 +159,94 @@ fun PhotoSection(
     }
 }
 
+/**
+ * Una foto elegida: la imagen, qué es, y cómo sacarla.
+ *
+ * El tipo se elige **por foto** y no una vez para todas, que es como lo hace el
+ * `<select>` de cada tarjeta en `cargar-bici.html`. Es la razón de ser de la
+ * tanda: quien sube cuatro fotos sube el cuadro, la serie y un detalle, no
+ * cuatro veces lo mismo. Sin este control todas entraban como "Vista general" y
+ * el campo quedaba decorativo — el ViewModel ya sabía recibir el cambio, pero no
+ * había desde dónde hacerlo.
+ */
 @Composable
-private fun PhotoThumbnail(photo: PendingPhoto, onRemove: () -> Unit) {
-    Box {
-        AsyncImage(
-            model = photo.uri,
-            contentDescription = "Foto de la bicicleta",
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .size(96.dp)
-                .clip(RoundedCornerShape(8.dp)),
-        )
+private fun PhotoThumbnail(
+    photo: PendingPhoto,
+    onRemove: () -> Unit,
+    onTypeChanged: (PhotoType) -> Unit,
+) {
+    Column(Modifier.width(120.dp)) {
+        Box {
+            AsyncImage(
+                model = photo.uri,
+                contentDescription = "Foto de la bicicleta",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .size(96.dp)
+                    .clip(RoundedCornerShape(8.dp)),
+            )
 
-        if (photo.isPrimary) {
-            // La principal es la que se ve en el listado y en la denuncia.
-            Surface(
-                color = MaterialTheme.colorScheme.primary,
-                shape = RoundedCornerShape(bottomEnd = 8.dp),
-            ) {
-                Text(
-                    text = "Principal",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onPrimary,
-                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+            if (photo.isPrimary) {
+                // La principal es la que se ve en el listado y en la denuncia.
+                Surface(
+                    color = MaterialTheme.colorScheme.primary,
+                    shape = RoundedCornerShape(bottomEnd = 8.dp),
+                ) {
+                    Text(
+                        text = "Principal",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                    )
+                }
+            }
+
+            TextButton(
+                onClick = onRemove,
+                modifier = Modifier.align(Alignment.BottomEnd),
+            ) { Text("Quitar", style = MaterialTheme.typography.labelSmall) }
+        }
+
+        PhotoTypeChip(selected = photo.photoType, onSelected = onTypeChanged)
+    }
+}
+
+/**
+ * El tipo de una foto, como texto apretado que despliega la lista.
+ *
+ * No es un `OutlinedTextField` de sólo lectura como el de la pantalla de
+ * componentes: acá va debajo de una miniatura de 120dp y un campo con borde y
+ * etiqueta no entra sin comerse el espacio de la foto.
+ */
+@Composable
+private fun PhotoTypeChip(selected: PhotoType, onSelected: (PhotoType) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Box {
+        TextButton(
+            onClick = { expanded = true },
+            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(
+                text = selected.displayName,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            PhotoType.entries.forEach { type ->
+                DropdownMenuItem(
+                    text = { Text(type.displayName) },
+                    onClick = {
+                        onSelected(type)
+                        expanded = false
+                    },
                 )
             }
         }
-
-        TextButton(
-            onClick = onRemove,
-            modifier = Modifier.align(Alignment.BottomEnd),
-        ) { Text("Quitar", style = MaterialTheme.typography.labelSmall) }
     }
 }
 

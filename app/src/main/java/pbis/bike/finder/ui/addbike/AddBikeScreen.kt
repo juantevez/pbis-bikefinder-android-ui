@@ -190,6 +190,7 @@ private fun Form(
             gpsConsent = state.gpsAnalysisConsent,
             onPhotosPicked = viewModel::onPhotosPicked,
             onPhotoRemoved = viewModel::onPhotoRemoved,
+            onPhotoTypeChanged = viewModel::onPhotoTypeChanged,
             onGpsConsentChanged = viewModel::onGpsConsentChanged,
         )
 

@@ -14,8 +14,10 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -43,6 +45,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
@@ -69,6 +72,7 @@ fun BikePhotosSection(
     onPhotoTypeChanged: (PhotoType) -> Unit,
     onGpsConsentChanged: (Boolean) -> Unit,
     onDeleteRequested: (BikePhotoItem) -> Unit,
+    onEditRequested: (BikePhotoItem) -> Unit,
     onRetryLoad: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -98,8 +102,8 @@ fun BikePhotosSection(
             )
             Text(
                 text = "Se agregan y se eliminan al toque: no las guarda el botón de abajo. " +
-                    "Hasta $MAX_FOTOS por bicicleta; si llegaste al tope, eliminá una para " +
-                    "hacer lugar.",
+                    "Tocá una para corregir qué muestra. Hasta $MAX_FOTOS por bicicleta; si " +
+                    "llegaste al tope, eliminá una para hacer lugar.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 2.dp, bottom = 12.dp),
@@ -145,6 +149,7 @@ fun BikePhotosSection(
                             photo = photo,
                             enabled = !state.photosBusy,
                             onDelete = { onDeleteRequested(photo) },
+                            onEdit = { onEditRequested(photo) },
                         )
                     }
                 }
@@ -178,6 +183,7 @@ fun BikePhotosSection(
             PhotoTypePicker(
                 selected = state.photoType,
                 enabled = !state.photosBusy,
+                label = "Tipo de las fotos que agregues",
                 onSelected = onPhotoTypeChanged,
                 modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
             )
@@ -225,58 +231,82 @@ private fun PhotoTile(
     photo: BikePhotoItem,
     enabled: Boolean,
     onDelete: () -> Unit,
+    onEdit: () -> Unit,
 ) {
-    Box {
-        AsyncImage(
-            model = photo.miniaturaUrl,
-            contentDescription = photo.fileName ?: "Foto de la bicicleta",
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .size(104.dp)
-                .clip(RoundedCornerShape(8.dp)),
-        )
+    Column(Modifier.width(104.dp)) {
+        Box {
+            AsyncImage(
+                model = photo.miniaturaUrl,
+                contentDescription = photo.fileName ?: "Foto de la bicicleta",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .size(104.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable(enabled = enabled, onClick = onEdit),
+            )
 
-        if (photo.isPrimary) {
-            Surface(
-                color = MaterialTheme.colorScheme.primary,
-                shape = RoundedCornerShape(topStart = 8.dp, bottomEnd = 8.dp),
+            if (photo.isPrimary) {
+                Surface(
+                    color = MaterialTheme.colorScheme.primary,
+                    shape = RoundedCornerShape(topStart = 8.dp, bottomEnd = 8.dp),
+                ) {
+                    Text(
+                        text = "Principal",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                    )
+                }
+            }
+
+            FilledTonalIconButton(
+                onClick = onDelete,
+                enabled = enabled,
+                colors = IconButtonDefaults.filledTonalIconButtonColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                    contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                ),
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(2.dp)
+                    .size(28.dp),
             ) {
-                Text(
-                    text = "Principal",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onPrimary,
-                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                Icon(
+                    imageVector = Icons.Filled.Close,
+                    contentDescription = "Eliminar la foto ${photo.fileName ?: ""}".trim(),
+                    modifier = Modifier.size(16.dp),
                 )
             }
         }
 
-        FilledTonalIconButton(
-            onClick = onDelete,
-            enabled = enabled,
-            colors = IconButtonDefaults.filledTonalIconButtonColors(
-                containerColor = MaterialTheme.colorScheme.errorContainer,
-                contentColor = MaterialTheme.colorScheme.onErrorContainer,
-            ),
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(2.dp)
-                .size(28.dp),
-        ) {
-            Icon(
-                imageVector = Icons.Filled.Close,
-                contentDescription = "Eliminar la foto ${photo.fileName ?: ""}".trim(),
-                modifier = Modifier.size(16.dp),
-            )
-        }
+        // Debajo va lo que la foto dice ser. Sin esto, el tipo era un dato que se
+        // elegía al subir y no se veía nunca más, así que nadie podía notar que
+        // estaba mal.
+        Text(
+            text = photo.etiqueta,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(top = 2.dp),
+        )
     }
 }
 
-/** El `select` de tipo de foto: qué se le manda al backend con la próxima subida. */
+/**
+ * El `select` de tipo de foto.
+ *
+ * El [label] va por parámetro porque el control sirve para dos preguntas
+ * distintas: abajo de la grilla elige el tipo de las fotos que están por
+ * subirse, y en el diálogo corrige el de una que ya está. Con un texto fijo, el
+ * diálogo decía "las fotos que agregues" sobre una foto que no se agrega.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PhotoTypePicker(
     selected: PhotoType,
     enabled: Boolean,
+    label: String,
     onSelected: (PhotoType) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -288,7 +318,7 @@ private fun PhotoTypePicker(
             onValueChange = {},
             readOnly = true,
             enabled = enabled,
-            label = { Text("Tipo de las fotos que agregues") },
+            label = { Text(label) },
             modifier = Modifier.fillMaxWidth(),
         )
         // La caja transparente encima es lo que abre el menú: un OutlinedTextField
@@ -312,4 +342,67 @@ private fun PhotoTypePicker(
             }
         }
     }
+}
+
+/**
+ * Corregir qué muestra una foto ya subida.
+ *
+ * Los dos campos van juntos porque responden la misma pregunta con distinta
+ * precisión: el tipo la ubica en una de las ocho categorías que el backend
+ * entiende --y que sirven para filtrar-- y la descripción dice lo que la
+ * categoría no puede ("rayón en el guardabarros"). Obligar a elegir entre las
+ * dos dejaría datos sueltos: un texto libre no se puede agrupar, y una
+ * categoría sola no distingue dos detalles de la misma bici.
+ */
+@Composable
+fun EditPhotoDialog(
+    edit: PhotoEdit,
+    onTypeChanged: (PhotoType) -> Unit,
+    onDescriptionChanged: (String) -> Unit,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = { if (!edit.saving) onDismiss() },
+        title = { Text("¿Qué muestra esta foto?") },
+        text = {
+            Column {
+                PhotoTypePicker(
+                    selected = edit.photoType,
+                    enabled = !edit.saving,
+                    label = "Tipo de foto",
+                    onSelected = onTypeChanged,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+
+                OutlinedTextField(
+                    value = edit.description,
+                    onValueChange = onDescriptionChanged,
+                    enabled = !edit.saving,
+                    label = { Text("Aclaración (opcional)") },
+                    placeholder = { Text("Ej: rayón en el guardabarros") },
+                    minLines = 2,
+                    maxLines = 4,
+                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                )
+
+                edit.error?.let {
+                    Text(
+                        text = it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm, enabled = !edit.saving) {
+                Text(if (edit.saving) "Guardando…" else "Guardar")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !edit.saving) { Text("Cancelar") }
+        },
+    )
 }

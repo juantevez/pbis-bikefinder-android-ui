@@ -9,6 +9,8 @@ import pbis.bike.finder.data.remote.api.BicycleApi
 import pbis.bike.finder.data.remote.dto.BicycleDto
 import pbis.bike.finder.data.remote.dto.BicycleSummaryDto
 import pbis.bike.finder.data.remote.dto.PhotoDto
+import pbis.bike.finder.data.remote.dto.PhotoType
+import pbis.bike.finder.data.remote.dto.UpdatePhotoRequestDto
 import pbis.bike.finder.data.remote.dto.RegisterFromCatalogRequestDto
 import pbis.bike.finder.data.remote.dto.RegisterManuallyRequestDto
 import pbis.bike.finder.data.remote.dto.UpdateComponentsRequestDto
@@ -81,6 +83,25 @@ class BicycleRepository @Inject constructor(
             is ApiResult.NoNetwork -> ApiResult.NoNetwork
             is ApiResult.HttpError -> result
             is ApiResult.Malformed -> result
+        }
+
+    /**
+     * Cambia la metadata de una foto: qué muestra y, si hace falta, una
+     * aclaración escrita.
+     *
+     * La descripción vacía **sí** viaja, como cadena vacía: es la única forma de
+     * borrar una que ya estaba. Un null sería "dejala como está".
+     */
+    suspend fun updatePhoto(
+        photoId: String,
+        photoType: PhotoType,
+        description: String?,
+    ): ApiResult<Unit> =
+        apiCall(json) {
+            api.updatePhoto(
+                photoId,
+                UpdatePhotoRequestDto(photoType = photoType, description = description),
+            ).orThrow()
         }
 
     /**

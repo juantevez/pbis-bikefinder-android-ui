@@ -38,6 +38,8 @@ import pbis.bike.finder.data.remote.dto.TheftReportDto
 import pbis.bike.finder.data.remote.dto.UpdateComponentsRequestDto
 import pbis.bike.finder.data.repository.BicycleRepository
 import pbis.bike.finder.data.repository.CatalogRepository
+import pbis.bike.finder.data.remote.dto.PhotoType
+import pbis.bike.finder.data.remote.dto.UpdatePhotoRequestDto
 import pbis.bike.finder.data.repository.PendingPhoto
 import pbis.bike.finder.data.repository.PhotoUploadOutcome
 import pbis.bike.finder.data.repository.PhotoUploadResult
@@ -120,6 +122,8 @@ class AddBikeViewModelTest {
             body: UpdateComponentsRequestDto,
         ): Response<Unit> = notUsed()
 
+        override suspend fun updatePhoto(id: String, body: UpdatePhotoRequestDto): Response<Unit> =
+            notUsed()
         override suspend fun deletePhoto(id: String): Response<Unit> = notUsed()
         override suspend fun photos(id: String): PhotoListResponseDto = notUsed()
         override suspend fun uploadPhoto(
@@ -601,6 +605,46 @@ class AddBikeViewModelTest {
         assertEquals("nueva-bici", state.createdBikeId)
         assertNull(state.formError)
         assertTrue(state.photoWarning!!.contains("1 de 2"))
+    }
+
+    @Test
+    fun `cada foto viaja con el tipo que le puso el usuario`() = runTest {
+        // El tipo se elige por foto, no una vez para toda la tanda: quien sube
+        // cuatro fotos sube el cuadro, la serie y un detalle. Antes el ViewModel
+        // ya sabía recibir el cambio pero la pantalla no lo ofrecía, así que todo
+        // entraba como GENERAL y el campo era decorativo.
+        val api = apiWithCatalog()
+        val uploader = FakeUploader()
+        val sut = viewModel(api, uploader)
+        advanceUntilIdle()
+        altaListaParaEnviar(api, sut) { advanceUntilIdle() }
+
+        sut.onPhotosPicked(listOf(uri("a"), uri("b")))
+        sut.onPhotoTypeChanged(uri("b"), PhotoType.SERIAL_NUMBER)
+        sut.submit()
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf(PhotoType.GENERAL, PhotoType.SERIAL_NUMBER),
+            uploader.lastPhotos.map { it.photoType },
+        )
+    }
+
+    @Test
+    fun `cambiar el tipo de una foto no toca a las demas`() = runTest {
+        val api = apiWithCatalog()
+        val sut = viewModel(api)
+        advanceUntilIdle()
+        altaListaParaEnviar(api, sut) { advanceUntilIdle() }
+
+        sut.onPhotosPicked(listOf(uri("a"), uri("b")))
+        sut.onPhotoTypeChanged(uri("a"), PhotoType.DAMAGE)
+
+        val fotos = sut.state.value.photos
+        assertEquals(PhotoType.DAMAGE, fotos.first { it.uri == uri("a") }.photoType)
+        assertEquals(PhotoType.GENERAL, fotos.first { it.uri == uri("b") }.photoType)
+        // Y la principal sigue siendo la primera: el tipo no decide la portada.
+        assertTrue(fotos.first { it.uri == uri("a") }.isPrimary)
     }
 
     @Test
