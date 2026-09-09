@@ -377,15 +377,10 @@ private fun SizeDropdown(
         label = "Talle",
         options = sizes,
         selected = sizes.firstOrNull { it.sizeCode == selected },
-        optionLabel = { size ->
-            val label = size.sizeLabel ?: size.sizeCode
-            val hint = if (size.riderHeightMinCm != null && size.riderHeightMaxCm != null) {
-                " (${size.riderHeightMinCm}-${size.riderHeightMaxCm}cm)"
-            } else {
-                ""
-            }
-            "$label$hint"
-        },
+        // Solo el talle: S1, XS, 54. El rango de altura del ciclista se mostraba
+        // al lado --"M (165-175cm)"-- y ensuciaba una lista que ya es corta y de
+        // valores cortos. El dato sigue viniendo en el DTO, no se muestra.
+        optionLabel = { size -> size.sizeLabel ?: size.sizeCode },
         onSelect = { onSelect(it?.sizeCode) },
         enabled = enabled && sizes.isNotEmpty(),
         placeholder = if (sizes.isEmpty()) emptyPlaceholder else "Seleccionar…",

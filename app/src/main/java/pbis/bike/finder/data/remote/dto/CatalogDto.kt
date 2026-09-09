@@ -115,7 +115,10 @@ data class FrameSizeDto(
     val sizeCode: String,
     val sizeLabel: String? = null,
     val sizeCmEquivalent: Double? = null,
-    /** El front arma con esto la ayuda "(165-175cm)" al lado del talle. */
+    /**
+     * Rango de altura de quien la maneja. La pantalla de alta ya no lo muestra:
+     * la lista de talles va sola, sin la ayuda "(165-175cm)" que llevaba al lado.
+     */
     val riderHeightMinCm: Int? = null,
     val riderHeightMaxCm: Int? = null,
 )
