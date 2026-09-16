@@ -27,6 +27,13 @@ sealed interface ApiResult<out T> {
     data class HttpError(
         val code: Int,
         val body: ApiErrorDto?,
+        /**
+         * El `X-Request-Id` con el que el gateway contestó. Es la llave para
+         * encontrar **este** fallo en Loki: el mismo valor está en las líneas
+         * del gateway y del servicio que lo produjo. Null si la respuesta no
+         * vino del gateway (un proxy intermedio, un test con `Response.error`).
+         */
+        val requestId: String? = null,
     ) : ApiResult<Nothing> {
 
         /**
@@ -82,7 +89,7 @@ inline fun <T, R> ApiResult<T>.map(transform: (T) -> R): ApiResult<R> = when (th
 suspend fun <T> apiCall(json: Json, block: suspend () -> T): ApiResult<T> = try {
     ApiResult.Success(block())
 } catch (e: HttpException) {
-    ApiResult.HttpError(e.code(), parseError(json, e))
+    ApiResult.HttpError(e.code(), parseError(json, e), e.response()?.headers()?.get(HEADER_REQUEST_ID))
 } catch (e: IOException) {
     ApiResult.NoNetwork
 } catch (e: Exception) {
