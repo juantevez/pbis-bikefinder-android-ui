@@ -19,6 +19,7 @@ import okhttp3.logging.HttpLoggingInterceptor
 import pbis.bike.finder.BuildConfig
 import pbis.bike.finder.data.local.ApiEnvironment
 import pbis.bike.finder.data.remote.AuthInterceptor
+import pbis.bike.finder.data.remote.RequestIdInterceptor
 import pbis.bike.finder.data.remote.TokenAuthenticator
 import pbis.bike.finder.data.remote.api.AuthApi
 import pbis.bike.finder.data.remote.api.BicycleApi
@@ -93,9 +94,11 @@ object NetworkModule {
     @RefreshClient
     fun provideRefreshClient(
         baseUrlInterceptor: Interceptor,
+        requestIdInterceptor: RequestIdInterceptor,
         logging: HttpLoggingInterceptor,
     ): OkHttpClient = OkHttpClient.Builder()
         .addInterceptor(baseUrlInterceptor)
+        .addInterceptor(requestIdInterceptor)
         .addInterceptor(logging)
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
@@ -106,11 +109,15 @@ object NetworkModule {
     fun provideOkHttpClient(
         baseUrlInterceptor: Interceptor,
         authInterceptor: AuthInterceptor,
+        requestIdInterceptor: RequestIdInterceptor,
         tokenAuthenticator: TokenAuthenticator,
         logging: HttpLoggingInterceptor,
     ): OkHttpClient = OkHttpClient.Builder()
         .addInterceptor(baseUrlInterceptor)
         .addInterceptor(authInterceptor)
+        // Antes del logging: en debug el id sale en logcat junto a la request y
+        // se pega directo en Grafana.
+        .addInterceptor(requestIdInterceptor)
         .addInterceptor(logging)
         .authenticator(tokenAuthenticator)
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -220,7 +227,8 @@ object NetworkModule {
      * el gateway; **no puede llevar el `Authorization`**, porque mandarle
      * nuestro token a un tercero es filtrar una credencial; y la política de uso
      * de OSM exige un `User-Agent` que identifique a la aplicación —el genérico
-     * de OkHttp es motivo de bloqueo por IP—.
+     * de OkHttp es motivo de bloqueo por IP—. Tampoco lleva `X-Request-Id`: es
+     * un identificador nuestro y no tiene nada que hacer en un servidor ajeno.
      */
     @Provides
     @Singleton
